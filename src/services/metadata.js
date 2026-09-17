@@ -1,6 +1,7 @@
 const NodeID3 = require('node-id3');
 const axios = require('axios');
 const fs = require('fs');
+const path = require('path');
 const config = require('../config');
 
 // Sarlavha tushunarsiz raqamlar yoki belgilardan iboratligini aniqlash
@@ -38,16 +39,29 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// GitHub'dan albom rasmini yuklab olish
+// Local assets papkasidan (cover.JPG / cover.jpg) yoki GitHub'dan albom rasmini olish
 async function fetchCoverBuffer(url) {
-  if (!url) return null;
-  try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    return Buffer.from(response.data, 'binary');
-  } catch (err) {
-    console.error("Cover Download Error:", err.message);
-    return null;
+  const assetsDir = path.join(__dirname, '../../assets');
+  const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG'];
+  
+  // 1. Birinchi navbatda local assets/ papkasidagi rasmlarni tekshiramiz
+  for (const fileName of possibleFiles) {
+    const filePath = path.join(assetsDir, fileName);
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath);
+    }
   }
+
+  // 2. Agar local papkada rasm topilmasa, GitHub URL orqali yuklaydi
+  if (url) {
+    try {
+      const response = await axios.get(url, { responseType: 'arraybuffer' });
+      return Buffer.from(response.data, 'binary');
+    } catch (err) {
+      console.error("Cover Download Error:", err.message);
+    }
+  }
+  return null;
 }
 
 // ID3 Metadatalarni to'liq qayta yozish va tozalash

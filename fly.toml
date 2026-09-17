@@ -7,7 +7,20 @@ primary_region = "fra"
 [env]
   NODE_ENV = "production"
 
+# 1 GB RAM va 1 CPU sozlashi
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"
+
 [[services]]
-  internal_port = 8080
   protocol = "tcp"
-  script_checks = []
+  internal_port = 8080
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]

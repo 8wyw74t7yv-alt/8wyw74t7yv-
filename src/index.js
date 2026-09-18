@@ -81,13 +81,15 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // 1. TEPADAGI KESILGAN MUSIQA: title va performer'ni ataylab bo'sh beramizki, fayl nomi chiqib qolmasin!
+        // 1. TEPADAGI KESILGAN MUSIQA: Fayl nomini ko'rsatib yubormasligi uchun unga metadata yozamiz
+        const trimmedTitle = await cleanAndInjectMetadata(trimmedPath, session.originalTitle);
+
         await ctx.telegram.sendAudio(
           chatId,
           { source: trimmedPath },
           {
-            title: "",
-            performer: ""
+            title: trimmedTitle,
+            performer: config.defaultArtist
           }
         );
 
@@ -240,7 +242,7 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, sta
   } catch (err) {
     console.error("Process Error:", err);
   } finally {
-    [rawPath, taggedPath].forEach(p => {
+    [rawPath, taggedPath].filter(Boolean).forEach(p => {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     });
   }

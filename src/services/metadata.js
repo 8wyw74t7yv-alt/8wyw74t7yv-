@@ -37,7 +37,7 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// Albom rasmini Buffer ko'rinishida topib o'qish
+// Albom rasmini har qanday nomda (cover.JPG, cover.jpg va h.k.) qidirib topish
 function getCoverBuffer() {
   const possibleDirs = [
     path.join(__dirname, '../../assets'),
@@ -45,7 +45,8 @@ function getCoverBuffer() {
     path.join(process.cwd(), 'assets')
   ];
   
-  const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG'];
+// Katta va kichik harflardagi barcha variantlar
+  const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG', 'Cover.jpg'];
   
   for (const dir of possibleDirs) {
     for (const fileName of possibleFiles) {
@@ -59,6 +60,7 @@ function getCoverBuffer() {
   }
   return null;
 }
+
 
 async function cleanAndInjectMetadata(filePath, originalTitle) {
   let finalTitle = originalTitle;

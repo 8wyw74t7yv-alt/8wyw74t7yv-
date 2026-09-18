@@ -81,17 +81,13 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // 1. Kesilgan musiqani yuborish (Faqat caption bilan)
+        // 1. TEPADAGI KESILGAN MUSIQA: Hech qanday metadata va caption YO'Q!
         await ctx.telegram.sendAudio(
           chatId,
-          { source: trimmedPath },
-          {
-            caption: config.captionTemplate,
-            parse_mode: 'HTML'
-          }
+          { source: trimmedPath }
         );
 
-        // 2. To'liq musiqani yuborish
+        // 2. PASTDAGI TO'LIQ MUSIQA: Voice-tag, metadata, caption va reaksiyalar bilan
         const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
         await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
         const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);

@@ -85,10 +85,14 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // 1. TEPADAGI KESILGAN MUSIQA: Hech qanday metadata, sarlavha va rasm yo'q (toza fayl)
+        // 1. TEPADAGI KESILGAN MUSIQA: Bo'sh joy berildi (fayl nomi chiqmaydi)
         await ctx.telegram.sendAudio(
           chatId,
-          { source: trimmedPath }
+          { source: trimmedPath },
+          {
+            title: " ",
+            performer: " "
+          }
         );
 
         // 2. PASTDAGI TO'LIQ MUSIQA: Rasm, voice-tag, metadata va shablon bilan

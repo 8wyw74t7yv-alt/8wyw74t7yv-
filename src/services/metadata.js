@@ -2,7 +2,7 @@ const NodeID3 = require('node-id3');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const FormData = require('form-data'); // <-- Bu qator qo'shildi
+const FormData = require('form-data');
 const config = require('../config');
 
 // Sarlavha tushunarsiz raqamlar yoki belgilardan iboratligini aniqlash
@@ -17,7 +17,7 @@ function isGibberishTitle(title) {
   return onlyNumbersOrSymbols.test(clean) || isAudioFilename.test(clean);
 }
 
-// Shazam/AudD API orqali musiqa nomini aniqlash (Agar kalit bo'lsa)
+// Shazam/AudD API orqali musiqa nomini aniqlash
 async function identifyTrackTitle(filePath) {
   if (!config.auddApiKey) return null;
   
@@ -39,24 +39,23 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// Local assets papkasidan yoki GitHub'dan albom rasmini olish
-async function fetchCoverBuffer(url) {
-  const assetsDir = path.join(__dirname, '../../assets');
+// Albom rasmining fayl yo'lini topish
+function getCoverFilePath() {
+  // Bir nechta ehtimoliy papkalarni tekshiramiz (src/assets yoki root/assets)
+  const possibleDirs = [
+    path.join(__dirname, '../../assets'),
+    path.join(__dirname, '../assets'),
+    path.join(process.cwd(), 'assets')
+  ];
+  
   const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG'];
   
-  for (const fileName of possibleFiles) {
-    const filePath = path.join(assetsDir, fileName);
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath);
-    }
-  }
-
-  if (url) {
-    try {
-      const response = await axios.get(url, { responseType: 'arraybuffer' });
-      return Buffer.from(response.data, 'binary');
-    } catch (err) {
-      console.error("Cover Download Error:", err.message);
+  for (const dir of possibleDirs) {
+    for (const fileName of possibleFiles) {
+      const filePath = path.join(dir, fileName);
+      if (fs.existsSync(filePath)) {
+        return filePath;
+      }
     }
   }
   return null;
@@ -71,8 +70,6 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     finalTitle = identified ? identified : config.fallbackTitle;
   }
 
-  const imageBuffer = await fetchCoverBuffer(config.githubCoverUrl);
-
   const tags = {
     title: finalTitle,
     artist: config.defaultArtist,
@@ -85,17 +82,30 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     }
   };
 
-  if (imageBuffer) {
-    tags.image = {
-      mime: "image/jpeg",
-      type: { id: 3, name: 'front cover' },
-      description: 'Album Cover',
-      imageBuffer: imageBuffer
-    };
+  // Rasmni to'g'ridan-to'g'ri fayl yo'li orqali biriktiramiz
+  const coverPath = getCoverFilePath();
+  if (coverPath) {
+    tags.image = coverPath;
+  } else if (config.githubCoverUrl) {
+    // Agar local rasm topilmasa, GitHub URL'dan vaqtincha yuklab ishlatish mumkin
+    try {
+      const response = await axios.get(config.githubCoverUrl, { responseType: 'arraybuffer' });
+      const tempCoverPath = path.join(path.dirname(filePath), 'temp_cover.jpg');
+      fs.writeFileSync(tempCoverPath, Buffer.from(response.data, 'binary'));
+      tags.image = tempCoverPath;
+    } catch (err) {
+      console.error("GitHub Cover Download Error:", err.message);
+    }
   }
 
-  // NodeID3.write metodining o'zi eski teglarni avtomatik almashtiradi
+  // Teg yozish
   NodeID3.write(tags, filePath);
+
+  // Vaqtinchalik yuklangan rasm bo'lsa tozalash
+  const tempCoverPath = path.join(path.dirname(filePath), 'temp_cover.jpg');
+  if (fs.existsSync(tempCoverPath)) {
+    try { fs.unlinkSync(tempCoverPath); } catch (e) {}
+  }
 
   return finalTitle;
 }

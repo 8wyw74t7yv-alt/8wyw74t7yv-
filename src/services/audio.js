@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * Musiqaga Slowed effekti, kuchli Echo va baland Voice Tag’ni professional darajada mix qilish
+ * Musiqaga Slowed effekti, yumshoq Echo va qiz bolaning yoqimli ovoziga o'zgartirilgan Voice Tag mix qilish
  */
 function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPath) {
   return new Promise((resolve, reject) => {
@@ -34,29 +34,34 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
 
     let filterComplex = [];
 
-    // 1. Asosiy musiqani ozroq sekinlashtiramiz (Slowed effekti)
+    // 1. Asosiy musiqani slowed qilamiz
     let filterString = `[${mainIndex}:a]atempo=0.93[main_slow];`;
+
+    // Qiz bolaning ovozi uchun filtr: 
+    // asetrate=44100*1.25 (chastotani ko'tarib ingichka qiladi) + atempo=1/1.25 (tezligini asliga qaytaradi)
+    // aecho param: delay larni kattalashtirdik va qaytish (feedback) darajasini tushirdik (so'zlar yopilib qolmaydi)
+    const voiceFxChain = `volume=1.5,asetrate=44100*1.25,atempo=0.8,aecho=0.8:0.9:300|600:0.3|0.2`;
 
     // 2. Agar faqat boshiga tag qo'shilsa
     if (hasStartTag && !hasEndTag) {
       filterString += 
-        `[0:a]volume=1.8,aecho=0.8:0.9:150|250:0.5|0.4[tag_fx];` +
-        `[main_slow][tag_fx]amix=inputs=2:duration=first:weights=1 0.8:dropout_transition=2[outa]`;
+        `[0:a]${voiceFxChain}[tag_fx];` +
+        `[main_slow][tag_fx]amix=inputs=2:duration=first:weights=1 0.75:dropout_transition=2[outa]`;
     } 
     // 3. Agar faqat oxiriga tag qo'shilsa
     else if (!hasStartTag && hasEndTag) {
       const endTagInputIndex = mainIndex; 
       filterString += 
-        `[${endTagInputIndex}:a]volume=1.8,aecho=0.8:0.9:150|250:0.5|0.4[tag_fx];` +
-        `[main_slow][tag_fx]amix=inputs=2:duration=first:weights=1 0.8:dropout_transition=2[outa]`;
+        `[${endTagInputIndex}:a]${voiceFxChain}[tag_fx];` +
+        `[main_slow][tag_fx]amix=inputs=2:duration=first:weights=1 0.75:dropout_transition=2[outa]`;
     } 
     // 4. Ham boshiga, ham oxiriga qo'shilsa
     else if (hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
       filterString += 
-        `[0:a]volume=1.8,aecho=0.8:0.9:150|250:0.5|0.4[s_tag];` +
-        `[${endTagIndex}:a]volume=1.8,aecho=0.8:0.9:150|250:0.5|0.4[e_tag];` +
-        `[main_slow][s_tag][e_tag]amix=inputs=3:duration=first:weights=1 0.7 0.7:dropout_transition=2[outa]`;
+        `[0:a]${voiceFxChain}[s_tag];` +
+        `[${endTagIndex}:a]${voiceFxChain}[e_tag];` +
+        `[main_slow][s_tag][e_tag]amix=inputs=3:duration=first:weights=1 0.65 0.65:dropout_transition=2[outa]`;
     }
 
     filterComplex.push(filterString);

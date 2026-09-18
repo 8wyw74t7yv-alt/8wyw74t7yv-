@@ -85,24 +85,17 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        const trimmedTitle = await cleanAndInjectMetadata(trimmedPath, session.originalTitle);
-        const coverPath = getCoverPath();
-
-        // 1. KESILGAN MUSIQA (thumb qo'shildi)
+        // 1. TEPADAGI KESILGAN MUSIQA: Hech qanday metadata, sarlavha va rasm yo'q (toza fayl)
         await ctx.telegram.sendAudio(
           chatId,
-          { source: trimmedPath },
-          {
-            title: trimmedTitle,
-            performer: config.defaultArtist,
-            ...(coverPath && { thumb: { source: coverPath } })
-          }
+          { source: trimmedPath }
         );
 
-        // 2. TO'LIQ MUSIQA (thumb qo'shildi)
+        // 2. PASTDAGI TO'LIQ MUSIQA: Rasm, voice-tag, metadata va shablon bilan
         const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
         await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
         const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
+        const coverPath = getCoverPath();
 
         const sentFullMessage = await ctx.telegram.sendAudio(
           chatId,
@@ -226,7 +219,6 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, sta
     const updatedTitle = await cleanAndInjectMetadata(taggedPath, originalTitle);
     const coverPath = getCoverPath();
 
-    // KESMASDAN YUBORISH (thumb qo'shildi)
     const sentMessage = await ctx.telegram.sendAudio(
       chatId,
       { source: taggedPath },

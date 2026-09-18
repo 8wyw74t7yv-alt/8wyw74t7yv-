@@ -5,6 +5,7 @@ const path = require('path');
 const FormData = require('form-data');
 const config = require('../config');
 
+// Sarlavha tushunarsiz raqamlar yoki belgilardan iboratligini aniqlash
 function isGibberishTitle(title) {
   if (!title) return true;
   const clean = title.trim();
@@ -16,6 +17,7 @@ function isGibberishTitle(title) {
   return onlyNumbersOrSymbols.test(clean) || isAudioFilename.test(clean);
 }
 
+// Shazam/AudD API orqali musiqa nomini aniqlash
 async function identifyTrackTitle(filePath) {
   if (!config.auddApiKey) return null;
   
@@ -37,7 +39,7 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// Albom rasmini har qanday nomda (cover.JPG, cover.jpg va h.k.) qidirib topish
+// Albom rasmini har qanday papka va nomda qidirib topish
 function getCoverBuffer() {
   const possibleDirs = [
     path.join(__dirname, '../../assets'),
@@ -45,7 +47,7 @@ function getCoverBuffer() {
     path.join(process.cwd(), 'assets')
   ];
   
-// Katta va kichik harflardagi barcha variantlar
+  // Barcha ehtimoliy katta-kichik harfli nomlar
   const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG', 'Cover.jpg'];
   
   for (const dir of possibleDirs) {
@@ -60,7 +62,6 @@ function getCoverBuffer() {
   }
   return null;
 }
-
 
 async function cleanAndInjectMetadata(filePath, originalTitle) {
   let finalTitle = originalTitle;
@@ -82,7 +83,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     }
   };
 
-  // Rasmni Buffer orqali to'g'ri qo'shish
+  // Rasmni qidirib olish
   let imageBuffer = getCoverBuffer();
 
   if (!imageBuffer && config.githubCoverUrl) {
@@ -94,6 +95,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     }
   }
 
+  // node-id3 uchun to'g'ri format ('data' parametri orqali)
   if (imageBuffer) {
     tags.image = {
       mime: "image/jpeg",
@@ -102,7 +104,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
         name: "front cover"
       },
       description: "Cover",
-      imageBuffer: imageBuffer
+      data: imageBuffer 
     };
   }
 

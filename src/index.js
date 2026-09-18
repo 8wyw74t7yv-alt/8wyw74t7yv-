@@ -44,7 +44,7 @@ bot.on('channel_post', async (ctx) => {
     const tempDir = path.join(__dirname, '../temp');
     const assetsDir = path.join(__dirname, '../assets');
 
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: });
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
     const rawPath = path.join(tempDir, `raw_${audio.file_id}.mp3`);
     const taggedPath = path.join(tempDir, `tagged_${audio.file_id}.mp3`);

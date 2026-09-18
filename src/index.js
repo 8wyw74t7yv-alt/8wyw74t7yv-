@@ -9,28 +9,36 @@ const { setAutoReactions } = require('./services/telegram');
 
 const bot = new Telegraf(config.botToken);
 
-// Sessiyalar va vaqtinchalik jarayonlarni saqlash uchun xotira
 const pendingSessions = {};
 
-// XAVFSIZLIK: Barcha kiruvchi xabarlar uchun tekshiruv (Faqat ADMIN_ID uchun)
+// Cover rasm yo'lini topish yordamchi funksiyasi
+function getCoverPath() {
+  const possibleDirs = [
+    path.join(__dirname, '../assets'),
+    path.join(__dirname, '../../assets'),
+    path.join(process.cwd(), 'assets')
+  ];
+  const possibleFiles = ['photo.JPG', 'photo.jpg', 'cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png'];
+  
+  for (const dir of possibleDirs) {
+    for (const fileName of possibleFiles) {
+      const filePath = path.join(dir, fileName);
+      if (fs.existsSync(filePath)) return filePath;
+    }
+  }
+  return null;
+}
+
 bot.use(async (ctx, next) => {
   const fromId = ctx.from ? ctx.from.id : null;
-  
-  if (ctx.channelPost) {
-    return next();
-  }
-
-  if (fromId === config.adminId) {
-    return next();
-  }
-
+  if (ctx.channelPost) return next();
+  if (fromId === config.adminId) return next();
   return;
 });
 
 bot.start((ctx) => {});
 bot.help((ctx) => {});
 
-// Kanalga keladigan barcha postlar (Audio yoki Vaqt matni) shu yerda ushlanadi
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
   if (!post) return;
@@ -38,7 +46,6 @@ bot.on('channel_post', async (ctx) => {
   const chatId = post.chat.id;
   const session = pendingSessions[chatId];
 
-  // 1. Agar foydalanuvchi vaqt yuborgan bo'lsa (Masalan: 90:120)
   if (post.text && session && session.promptMessageId) {
     const text = post.text.trim();
     
@@ -57,14 +64,12 @@ bot.on('channel_post', async (ctx) => {
       const duration = endTime - startTime;
       const userMessageId = post.message_id;
 
-      // Foydalanuvchi yuborgan vaqt yozilgan xabarni va prompt xabarini o'chiramiz
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
       const tempDir = path.join(__dirname, '../temp');
       const trimmedPath = path.join(tempDir, `trimmed_${Date.now()}.mp3`);
 
-      // Jonli kutish effekti
       let loadingMsg = await ctx.telegram.sendMessage(chatId, "⏳ Musiqa kesilmoqda 🔄");
       const loadingAnimation = ['⏳ Musiqa kesilmoqda 🔄', '⌛️ Musiqa kesilmoqda 🔄.', '⏳ Musiqa kesilmoqda 🔄..', '⌛️ Musiqa kesilmoqda 🔄...'];
       let animIndex = 0;
@@ -75,25 +80,26 @@ bot.on('channel_post', async (ctx) => {
       }, 1500);
 
       try {
-        // Kesish jarayoni
         await trimAudio(session.rawPath, trimmedPath, startTime, duration);
 
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // 1. TEPADAGI KESILGAN MUSIQA: Fayl nomini ko'rsatib yubormasligi uchun unga metadata yozamiz
         const trimmedTitle = await cleanAndInjectMetadata(trimmedPath, session.originalTitle);
+        const coverPath = getCoverPath();
 
+        // 1. KESILGAN MUSIQA (thumb qo'shildi)
         await ctx.telegram.sendAudio(
           chatId,
           { source: trimmedPath },
           {
             title: trimmedTitle,
-            performer: config.defaultArtist
+            performer: config.defaultArtist,
+            ...(coverPath && { thumb: { source: coverPath } })
           }
         );
 
-        // 2. PASTDAGI TO'LIQ MUSIQA: Voice-tag, metadata, caption va reaksiyalar bilan
+        // 2. TO'LIQ MUSIQA (thumb qo'shildi)
         const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
         await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
         const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
@@ -105,7 +111,8 @@ bot.on('channel_post', async (ctx) => {
             caption: config.captionTemplate,
             parse_mode: 'HTML',
             title: updatedTitle,
-            performer: config.defaultArtist
+            performer: config.defaultArtist,
+            ...(coverPath && { thumb: { source: coverPath } })
           }
         );
 
@@ -131,7 +138,6 @@ bot.on('channel_post', async (ctx) => {
     }
   }
 
-  // 2. Agar post ichida audio bo'lsa
   if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
@@ -184,7 +190,6 @@ bot.on('channel_post', async (ctx) => {
   }
 });
 
-// Inline tugmalar bosilganda (`Kesamiz` / `Kesmaymiz`)
 bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   const action = ctx.match[1];
   const chatId = ctx.match[2];
@@ -212,7 +217,6 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   }
 });
 
-// Kesmaymiz bosilganda ishlaydigan funksiya
 async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, startTagPath, endTagPath) {
   const tempDir = path.dirname(rawPath);
   const taggedPath = path.join(tempDir, `tagged_${Date.now()}.mp3`);
@@ -220,7 +224,9 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, sta
   try {
     await processAudioWithVoiceTag(rawPath, taggedPath, startTagPath, endTagPath);
     const updatedTitle = await cleanAndInjectMetadata(taggedPath, originalTitle);
+    const coverPath = getCoverPath();
 
+    // KESMASDAN YUBORISH (thumb qo'shildi)
     const sentMessage = await ctx.telegram.sendAudio(
       chatId,
       { source: taggedPath },
@@ -228,7 +234,8 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, sta
         caption: config.captionTemplate,
         parse_mode: 'HTML',
         title: updatedTitle,
-        performer: config.defaultArtist
+        performer: config.defaultArtist,
+        ...(coverPath && { thumb: { source: coverPath } })
       }
     );
 

@@ -176,7 +176,6 @@ bot.on('channel_post', async (ctx) => {
         }
       });
 
-    } tashkilCatch => { // syntax check
     } catch (err) {
       console.error("Processing Error:", err);
     }

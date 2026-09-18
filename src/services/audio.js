@@ -39,7 +39,7 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
       concatInputs += '[0:a]';
       totalStreams++;
     }
-    concatInputs += `[${mainAudioIndex}:a]`;
+    concatInputs += `[${mainIndex}:a]`.replace('mainIndex', mainAudioIndex);
     totalStreams++;
 
     if (hasEndTag) {
@@ -83,4 +83,7 @@ function trimAudio(inputPath, outputPath, startSeconds, duration) {
   });
 }
 
-module.exports = { processAudioWithVoiceTag, trimAudio };
+module.exports = {
+  processAudioWithVoiceTag,
+  trimAudio
+};

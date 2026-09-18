@@ -39,7 +39,7 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// Albom rasmini har qanday papka va nomda qidirib topish
+// Albom rasmini assets papkasidan qidirib topish
 function getCoverBuffer() {
   const possibleDirs = [
     path.join(__dirname, '../../assets'),
@@ -47,8 +47,8 @@ function getCoverBuffer() {
     path.join(process.cwd(), 'assets')
   ];
   
-  // Barcha ehtimoliy katta-kichik harfli nomlar
-  const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG', 'Cover.jpg'];
+  // photo.JPG va boshqa nomlar
+  const possibleFiles = ['photo.JPG', 'photo.jpg', 'cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG'];
   
   for (const dir of possibleDirs) {
     for (const fileName of possibleFiles) {
@@ -83,19 +83,9 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     }
   };
 
-  // Rasmni qidirib olish
-  let imageBuffer = getCoverBuffer();
+  // Faqat lokal assets papkasidan rasmni olamiz (GitHub shart emas)
+  const imageBuffer = getCoverBuffer();
 
-  if (!imageBuffer && config.githubCoverUrl) {
-    try {
-      const response = await axios.get(config.githubCoverUrl, { responseType: 'arraybuffer' });
-      imageBuffer = Buffer.from(response.data, 'binary');
-    } catch (err) {
-      console.error("GitHub Cover Download Error:", err.message);
-    }
-  }
-
-  // node-id3 uchun to'g'ri format ('data' parametri orqali)
   if (imageBuffer) {
     tags.image = {
       mime: "image/jpeg",

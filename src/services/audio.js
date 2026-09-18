@@ -61,7 +61,7 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
 }
 
 /**
- * Musiqani belgilangan vaqt oralig'ida kesish (Trim)
+ * Musiqani belgilangan vaqt oralig'ida kesish (Trim) va BARCHA METADATALARNI TOZALASH
  * @param {string} inputPath - Asl fayl yo'li
  * @param {string} outputPath - Kesilgan fayl saqlanadigan yo'l
  * @param {number} startSeconds - Boshlanish vaqti (sekundda)
@@ -72,6 +72,9 @@ function trimAudio(inputPath, outputPath, startSeconds, duration) {
     ffmpeg(inputPath)
       .setStartTime(startSeconds)
       .setDuration(duration)
+      .outputOptions([
+        '-map_metadata -1' // <-- Eski sarlavha, artist va barcha metadatalarni o'chirib tashlaydi
+      ])
       .audioCodec('libmp3lame')
       .audioBitrate('320k')
       .on('end', () => resolve(outputPath))

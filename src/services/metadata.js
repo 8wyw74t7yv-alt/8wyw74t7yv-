@@ -5,7 +5,6 @@ const path = require('path');
 const FormData = require('form-data');
 const config = require('../config');
 
-// Sarlavha tushunarsiz raqamlar yoki belgilardan iboratligini aniqlash
 function isGibberishTitle(title) {
   if (!title) return true;
   const clean = title.trim();
@@ -17,7 +16,6 @@ function isGibberishTitle(title) {
   return onlyNumbersOrSymbols.test(clean) || isAudioFilename.test(clean);
 }
 
-// Shazam/AudD API orqali musiqa nomini aniqlash
 async function identifyTrackTitle(filePath) {
   if (!config.auddApiKey) return null;
   
@@ -39,9 +37,8 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// Albom rasmining fayl yo'lini topish
-function getCoverFilePath() {
-  // Bir nechta ehtimoliy papkalarni tekshiramiz (src/assets yoki root/assets)
+// Albom rasmini Buffer ko'rinishida topib o'qish
+function getCoverBuffer() {
   const possibleDirs = [
     path.join(__dirname, '../../assets'),
     path.join(__dirname, '../assets'),
@@ -54,14 +51,15 @@ function getCoverFilePath() {
     for (const fileName of possibleFiles) {
       const filePath = path.join(dir, fileName);
       if (fs.existsSync(filePath)) {
-        return filePath;
+        try {
+          return fs.readFileSync(filePath);
+        } catch (e) {}
       }
     }
   }
   return null;
 }
 
-// ID3 Metadatalarni yozish
 async function cleanAndInjectMetadata(filePath, originalTitle) {
   let finalTitle = originalTitle;
 
@@ -82,30 +80,32 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     }
   };
 
-  // Rasmni to'g'ridan-to'g'ri fayl yo'li orqali biriktiramiz
-  const coverPath = getCoverFilePath();
-  if (coverPath) {
-    tags.image = coverPath;
-  } else if (config.githubCoverUrl) {
-    // Agar local rasm topilmasa, GitHub URL'dan vaqtincha yuklab ishlatish mumkin
+  // Rasmni Buffer orqali to'g'ri qo'shish
+  let imageBuffer = getCoverBuffer();
+
+  if (!imageBuffer && config.githubCoverUrl) {
     try {
       const response = await axios.get(config.githubCoverUrl, { responseType: 'arraybuffer' });
-      const tempCoverPath = path.join(path.dirname(filePath), 'temp_cover.jpg');
-      fs.writeFileSync(tempCoverPath, Buffer.from(response.data, 'binary'));
-      tags.image = tempCoverPath;
+      imageBuffer = Buffer.from(response.data, 'binary');
     } catch (err) {
       console.error("GitHub Cover Download Error:", err.message);
     }
   }
 
-  // Teg yozish
-  NodeID3.write(tags, filePath);
-
-  // Vaqtinchalik yuklangan rasm bo'lsa tozalash
-  const tempCoverPath = path.join(path.dirname(filePath), 'temp_cover.jpg');
-  if (fs.existsSync(tempCoverPath)) {
-    try { fs.unlinkSync(tempCoverPath); } catch (e) {}
+  if (imageBuffer) {
+    tags.image = {
+      mime: "image/jpeg",
+      type: {
+        id: 3,
+        name: "front cover"
+      },
+      description: "Cover",
+      imageBuffer: imageBuffer
+    };
   }
+
+  // Tegni faylga yozamiz
+  NodeID3.write(tags, filePath);
 
   return finalTitle;
 }

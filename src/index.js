@@ -48,7 +48,20 @@ bot.on('channel_post', async (ctx) => {
 
   if (post.text && session && session.promptMessageId) {
     const text = post.text.trim();
+    const userMessageId = post.message_id;
+
+    // 1. "Kesmaymiz" bosilgandan keyin title yozilganda ishlaydi:
+    if (session.waitingForTitle) {
+      await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
+      await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
+
+      const customTitle = `${text} 🎧`;
+      await processAndSendFinalAudio(ctx, chatId, session.rawPath, customTitle, session.startTagPath, session.endTagPath);
+      delete pendingSessions[chatId];
+      return;
+    }
     
+    // 2. Musiqa kesish uchun vaqt oralig'i yuborilganda:
     if (text.includes(':')) {
       const parts = text.split(':');
       const startTime = parseInt(parts[0]);
@@ -57,12 +70,11 @@ bot.on('channel_post', async (ctx) => {
       if (isNaN(startTime) || isNaN(endTime) || startTime >= endTime) {
         const errReply = await ctx.telegram.sendMessage(chatId, "❌ Noto'g'ri format! Qaytadan kiriting (Masalan: `130:160`):", { parse_mode: 'Markdown' });
         setTimeout(() => ctx.telegram.deleteMessage(chatId, errReply.message_id).catch(()=>{}), 4000);
-        await ctx.telegram.deleteMessage(chatId, post.message_id).catch(() => {});
+        await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
         return;
       }
 
       const duration = endTime - startTime;
-      const userMessageId = post.message_id;
 
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
@@ -85,7 +97,7 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // 1. TEPADAGI KESILGAN MUSIQA: Bo'sh joy berildi (fayl nomi chiqmaydi)
+        // Tepadagi kesilgan musiqa (toza fayl)
         await ctx.telegram.sendAudio(
           chatId,
           { source: trimmedPath },
@@ -95,7 +107,7 @@ bot.on('channel_post', async (ctx) => {
           }
         );
 
-        // 2. PASTDAGI TO'LIQ MUSIQA: Rasm, voice-tag, metadata va shablon bilan
+        // Pastdagi to'liq musiqa
         const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
         await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
         const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
@@ -202,9 +214,12 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
 
   if (action === 'no') {
-    await ctx.deleteMessage().catch(() => {});
-    await processAndSendFinalAudio(ctx, chatId, session.rawPath, session.originalTitle, session.startTagPath, session.endTagPath);
-    delete pendingSessions[chatId];
+    // Kesmaymiz bosilganda title so'raymiz
+    session.waitingForTitle = true;
+    session.promptMessageId = queryMessageId;
+    await ctx.editMessageText("✍️ Musiqa uchun **title (nom)** yuboring:", {
+      parse_mode: 'Markdown'
+    });
 
   } else if (action === 'yes') {
     await ctx.editMessageText("⏱ Musiqa kesish uchun vaqt oralig'ini yuboring (Masalan: `130:160` formatida):", {
@@ -214,13 +229,13 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   }
 });
 
-async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, startTagPath, endTagPath) {
+async function processAndSendFinalAudio(ctx, chatId, rawPath, customTitle, startTagPath, endTagPath) {
   const tempDir = path.dirname(rawPath);
   const taggedPath = path.join(tempDir, `tagged_${Date.now()}.mp3`);
 
   try {
     await processAudioWithVoiceTag(rawPath, taggedPath, startTagPath, endTagPath);
-    const updatedTitle = await cleanAndInjectMetadata(taggedPath, originalTitle);
+    const updatedTitle = await cleanAndInjectMetadata(taggedPath, customTitle);
     const coverPath = getCoverPath();
 
     const sentMessage = await ctx.telegram.sendAudio(

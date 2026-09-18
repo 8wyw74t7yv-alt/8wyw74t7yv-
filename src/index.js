@@ -46,23 +46,36 @@ bot.on('channel_post', async (ctx) => {
   const chatId = post.chat.id;
   const session = pendingSessions[chatId];
 
-  if (post.text && session && session.promptMessageId) {
+  if (post.text && session) {
     const text = post.text.trim();
     const userMessageId = post.message_id;
 
-    // 1. "Kesmaymiz" bosilgandan keyin title yozilganda ishlaydi:
+    // 1. Musiqa tashlangandan keyin BIRINCHI NAVBATDA title so'ralgandagi holat:
     if (session.waitingForTitle) {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
-      const customTitle = `${text} 🎧`;
-      await processAndSendFinalAudio(ctx, chatId, session.rawPath, customTitle, session.startTagPath, session.endTagPath);
-      delete pendingSessions[chatId];
+      // Title oxiriga 🎧 qo'shib saqlab qo'yamiz
+      session.customTitle = `${text} 🎧`;
+      session.waitingForTitle = false;
+
+      // Endi tugmalarni chiqaramiz: Kesamiz / Kesmaymiz
+      const promptMsg = await ctx.telegram.sendMessage(chatId, "🎵 Musiqani kesamizmi?", {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✂️ Kesamiz", callback_data: `trim_yes_${chatId}` },
+              { text: "⏩ Kesmaymiz", callback_data: `trim_no_${chatId}` }
+            ]
+          ]
+        }
+      });
+      session.promptMessageId = promptMsg.message_id;
       return;
     }
-    
-    // 2. Musiqa kesish uchun vaqt oralig'i yuborilganda:
-    if (text.includes(':')) {
+
+    // 2. "Kesamiz" bosilgandan keyin VAQT ORALIG'I yuborilgandagi holat:
+    if (session.waitingForTrimTime && text.includes(':')) {
       const parts = text.split(':');
       const startTime = parseInt(parts[0]);
       const endTime = parseInt(parts[1]);
@@ -97,7 +110,7 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // Tepadagi kesilgan musiqa (toza fayl)
+        // Tepadagi kesilgan musiqa (bo'sh title/performer bilan)
         await ctx.telegram.sendAudio(
           chatId,
           { source: trimmedPath },
@@ -107,10 +120,10 @@ bot.on('channel_post', async (ctx) => {
           }
         );
 
-        // Pastdagi to'liq musiqa
+        // Pastdagi to'liq musiqa (foydalanuvchi kiritgan custom title bilan)
         const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
         await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
-        const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
+        const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.customTitle);
         const coverPath = getCoverPath();
 
         const sentFullMessage = await ctx.telegram.sendAudio(
@@ -147,6 +160,7 @@ bot.on('channel_post', async (ctx) => {
     }
   }
 
+  // Musiqa kelganda birinchi bo'lib title so'raymiz
   if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
@@ -172,26 +186,21 @@ bot.on('channel_post', async (ctx) => {
         writer.on('error', reject);
       });
 
+      // Eski musiqaning o'zini o'chiramiz
+      await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
+
+      // Sessionalarni saqlaymiz va title so'rashni boshlaymiz
+      const promptMsg = await ctx.telegram.sendMessage(chatId, "✍️ Musiqa uchun **title (nom)** yuboring:", {
+        parse_mode: 'Markdown'
+      });
+
       pendingSessions[chatId] = {
         rawPath,
-        originalTitle: audio.title || audio.file_name,
         startTagPath,
         endTagPath,
-        originalMessageId: messageId
+        waitingForTitle: true,
+        promptMessageId: promptMsg.message_id
       };
-
-      await ctx.telegram.deleteMessage(chatId, messageId);
-
-      await ctx.telegram.sendMessage(chatId, "🎵 Musiqani kesamizmi?", {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "✂️ Kesamiz", callback_data: `trim_yes_${chatId}` },
-              { text: "⏩ Kesmaymiz", callback_data: `trim_no_${chatId}` }
-            ]
-          ]
-        }
-      });
 
     } catch (err) {
       console.error("Processing Error:", err);
@@ -214,14 +223,14 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
 
   if (action === 'no') {
-    // Kesmaymiz bosilganda title so'raymiz
-    session.waitingForTitle = true;
-    session.promptMessageId = queryMessageId;
-    await ctx.editMessageText("✍️ Musiqa uchun **title (nom)** yuboring:", {
-      parse_mode: 'Markdown'
-    });
+    // Kesmaymiz bosilsa, to'g'ridan-to'g'ri o'sha kiritilgan custom title bilan yuboramiz
+    await ctx.deleteMessage().catch(() => {});
+    await processAndSendFinalAudio(ctx, chatId, session.rawPath, session.customTitle, session.startTagPath, session.endTagPath);
+    delete pendingSessions[chatId];
 
   } else if (action === 'yes') {
+    // Kesamiz bosilsa, vaqt oralig'ini so'raymiz
+    session.waitingForTrimTime = true;
     await ctx.editMessageText("⏱ Musiqa kesish uchun vaqt oralig'ini yuboring (Masalan: `130:160` formatida):", {
       parse_mode: 'Markdown'
     });

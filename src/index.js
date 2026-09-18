@@ -7,10 +7,9 @@ const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
 const { setAutoReactions } = require('./services/telegram');
 
-const bot = new Text ? new Telegraf(config.botToken) : new Telegraf(config.botToken);
+const bot = new Telegraf(config.botToken);
 
 // Sessiyalar va vaqtinchalik jarayonlarni saqlash uchun xotira
-// userSessions[chatId] = { rawPath, originalTitle, audioFileId }
 const pendingSessions = {};
 
 // XAVFSIZLIK: Barcha kiruvchi xabarlar uchun tekshiruv (Faqat ADMIN_ID uchun)
@@ -62,7 +61,7 @@ bot.on('channel_post', async (ctx) => {
         writer.on('error', reject);
       });
 
-      // Sessiyani saqlab qo'yamiz (agar foydalanuvchi kesishni xohlasa)
+      // Sessiyani saqlab qo'yamiz
       pendingSessions[chatId] = {
         rawPath,
         originalTitle: audio.title || audio.file_name,
@@ -107,19 +106,14 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
 
   if (action === 'no') {
-    // Tugmani o'chiramiz
     await ctx.deleteMessage().catch(() => {});
-
-    // To'g'ridan-to'g'ri odatiy qayta ishlashga o'tamiz
     await processAndSendFinalAudio(ctx, chatId, session.rawPath, session.originalTitle, session.startTagPath, session.endTagPath);
     delete pendingSessions[chatId];
 
   } else if (action === 'yes') {
-    // Tugmani o'zgartirib, vaqt yuborishini so'raymiz
     await ctx.editMessageText("⏱ Musiqa kesish uchun vaqt oralig'ini yuboring (Masalan: `130:160` formatida):", {
       parse_mode: 'Markdown'
     });
-    // Hozirgi holatni vaqt kutishga o'tkazamiz
     session.promptMessageId = queryMessageId;
   }
 });
@@ -130,7 +124,6 @@ bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
   const session = pendingSessions[chatId];
 
-  // Agar bu xabar kesish vaqtini kiritish uchun bo'lsa
   if (session && session.promptMessageId && text.includes(':')) {
     const parts = text.split(':');
     const startTime = parseInt(parts[0]);
@@ -144,15 +137,13 @@ bot.on('text', async (ctx) => {
     const duration = endTime - startTime;
     const userMessageId = ctx.message.message_id;
 
-    // Foydalanuvchi yuborgan vaqt yozilgan xabarni o'chiramiz
     await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
-    // Prompt xabarini ham o'chiramiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
     const tempDir = path.join(__dirname, '../temp');
     const trimmedPath = path.join(tempDir, `trimmed_${Date.now()}.mp3`);
 
-    // Jonli kutish effekti (Animatsiya / Loading)
+    // Jonli kutish effekti
     let loadingMsg = await ctx.telegram.sendMessage(chatId, "⏳ Musiqa kesilmoqda 🔄");
     const loadingAnimation = ['⏳ Musiqa kesilmoqda 🔄', '⌛️ Musiqa kesilmoqda 🔄.', '⏳ Musiqa kesilmoqda 🔄..', '⌛️ Musiqa kesilmoqda 🔄...'];
     let animIndex = 0;
@@ -166,11 +157,10 @@ bot.on('text', async (ctx) => {
       // 1. Kesish jarayoni
       await trimAudio(session.rawPath, trimmedPath, startTime, duration);
 
-      // 2. Intervalni to'xtatish va loading xabarini o'chirish
       clearInterval(interval);
       await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-      // 3. Avval kesilgan musiqani yuborish (Faqat caption bilan, metadatalarsiz)
+      // 2. Kesilgan musiqani yuborish (Faqat caption bilan)
       await ctx.telegram.sendAudio(
         chatId,
         { source: trimmedPath },
@@ -180,7 +170,7 @@ bot.on('text', async (ctx) => {
         }
       );
 
-      // 4. Ortidan to'liq (katta) musiqani tahrirlab yuborish
+      // 3. To'liq musiqani tahrirlab yuborish
       const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
       await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
       const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
@@ -196,16 +186,13 @@ bot.on('text', async (ctx) => {
         }
       );
 
-      // Reaksiya bosish
       await setAutoReactions(ctx.telegram, chatId, sentFullMessage.message_id);
 
-      // 5. Xabar chiqarish va 5 sekunddan keyin o'chirish
       const notifyMsg = await ctx.telegram.sendMessage(chatId, `🎧 ${config.channelUsername} kanaliga tahrirlab joyladim✅`);
       setTimeout(async () => {
         await ctx.telegram.deleteMessage(chatId, notifyMsg.message_id).catch(() => {});
       }, 5000);
 
-      // Fayllarni tozalash
       [trimmedPath, taggedPath, session.rawPath].forEach(p => {
         if (fs.existsSync(p)) fs.unlinkSync(p);
       });
@@ -220,7 +207,7 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// Oddiy holatda (Kesmaymiz bosilganda) ishlaydigan funksiya
+// Kesmaymiz bosilganda ishlaydigan funksiya
 async function processAndSendFinalAudio(ctx, chatId, rawPath, originalTitle, startTagPath, endTagPath) {
   const tempDir = path.dirname(rawPath);
   const taggedPath = path.join(tempDir, `tagged_${Date.now()}.mp3`);

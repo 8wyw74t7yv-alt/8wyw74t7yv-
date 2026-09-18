@@ -7,9 +7,9 @@ module.exports = {
   channelLink: process.env.CHANNEL_LINK || "https://t.me/muzxs",
   githubCoverUrl: process.env.GITHUB_COVER_URL || "",
   auddApiKey: process.env.AUDD_API_KEY || "",
-  
-  // Ruxsat berilgan reaksiyalar
-  reactions: ["🔥", "👍", "⚡️", "🤩", "🫡"],
+    // Ruxsat berilgan reaksiyalar (ko'plik qilib yubormaslik uchun 1-2 taga qisqartiramiz)
+  reactions: ["🔥", "👍"],
+
   
   // Shablondagi artist va standart nom
   defaultArtist: "-MuzXs",

@@ -30,12 +30,107 @@ bot.use(async (ctx, next) => {
 bot.start((ctx) => {});
 bot.help((ctx) => {});
 
-// Kanalga musiqa kelganda ushlab olish va tugma chiqarish
+// Kanalga keladigan barcha postlar (Audio yoki Vaqt matni) shu yerda ushlanadi
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
+  if (!post) return;
 
-  if (post && post.audio) {
-    const chatId = post.chat.id;
+  const chatId = post.chat.id;
+  const session = pendingSessions[chatId];
+
+  // 1. Agar foydalanuvchi vaqt yuborgan bo'lsa (Masalan: 90:120)
+  if (post.text && session && session.promptMessageId) {
+    const text = post.text.trim();
+    
+    if (text.includes(':')) {
+      const parts = text.split(':');
+      const startTime = parseInt(parts[0]);
+      const endTime = parseInt(parts[1]);
+
+      if (isNaN(startTime) || isNaN(endTime) || startTime >= endTime) {
+        const errReply = await ctx.telegram.sendMessage(chatId, "❌ Noto'g'ri format! Qaytadan kiriting (Masalan: `130:160`):", { parse_mode: 'Markdown' });
+        setTimeout(() => ctx.telegram.deleteMessage(chatId, errReply.message_id).catch(()=>{}), 4000);
+        await ctx.telegram.deleteMessage(chatId, post.message_id).catch(() => {});
+        return;
+      }
+
+      const duration = endTime - startTime;
+      const userMessageId = post.message_id;
+
+      // Foydalanuvchi yuborgan vaqt yozilgan xabarni va prompt xabarini o'chiramiz
+      await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
+      await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
+
+      const tempDir = path.join(__dirname, '../temp');
+      const trimmedPath = path.join(tempDir, `trimmed_${Date.now()}.mp3`);
+
+      // Jonli kutish effekti
+      let loadingMsg = await ctx.telegram.sendMessage(chatId, "⏳ Musiqa kesilmoqda 🔄");
+      const loadingAnimation = ['⏳ Musiqa kesilmoqda 🔄', '⌛️ Musiqa kesilmoqda 🔄.', '⏳ Musiqa kesilmoqda 🔄..', '⌛️ Musiqa kesilmoqda 🔄...'];
+      let animIndex = 0;
+
+      const interval = setInterval(async () => {
+        animIndex = (animIndex + 1) % loadingAnimation.length;
+        await ctx.telegram.editMessageText(chatId, loadingMsg.message_id, undefined, loadingAnimation[animIndex]).catch(() => {});
+      }, 1500);
+
+      try {
+        // Kesish jarayoni
+        await trimAudio(session.rawPath, trimmedPath, startTime, duration);
+
+        clearInterval(interval);
+        await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+
+        // 1. Kesilgan musiqani yuborish (Faqat caption bilan)
+        await ctx.telegram.sendAudio(
+          chatId,
+          { source: trimmedPath },
+          {
+            caption: config.captionTemplate,
+            parse_mode: 'HTML'
+          }
+        );
+
+        // 2. To'liq musiqani yuborish
+        const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
+        await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
+        const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
+
+        const sentFullMessage = await ctx.telegram.sendAudio(
+          chatId,
+          { source: taggedPath },
+          {
+            caption: config.captionTemplate,
+            parse_mode: 'HTML',
+            title: updatedTitle,
+            performer: config.defaultArtist
+          }
+        );
+
+        await setAutoReactions(ctx.telegram, chatId, sentFullMessage.message_id);
+
+        const notifyMsg = await ctx.telegram.sendMessage(chatId, `🎧 ${config.channelUsername} kanaliga tahrirlab joyladim✅`);
+        setTimeout(async () => {
+          await ctx.telegram.deleteMessage(chatId, notifyMsg.message_id).catch(() => {});
+        }, 5000);
+
+        [trimmedPath, taggedPath, session.rawPath].forEach(p => {
+          if (fs.existsSync(p)) fs.unlinkSync(p);
+        });
+
+        delete pendingSessions[chatId];
+
+      } catch (err) {
+        clearInterval(interval);
+        console.error("Trim & Process Error:", err);
+        await ctx.telegram.sendMessage(chatId, "❌ Xatolik yuz berdi! Musiqani kesib bo'lmadi.");
+      }
+      return;
+    }
+  }
+
+  // 2. Agar post ichida audio bo'lsa
+  if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
 
@@ -49,7 +144,6 @@ bot.on('channel_post', async (ctx) => {
     const endTagPath = path.join(assetsDir, 'voicetag_end.mp3');
 
     try {
-      // 1. Asl musiqani yuklab olish
       const fileLink = await ctx.telegram.getFileLink(audio.file_id);
       const response = await axios({ method: 'get', url: fileLink.href, responseType: 'stream' });
       const writer = fs.createWriteStream(rawPath);
@@ -61,7 +155,6 @@ bot.on('channel_post', async (ctx) => {
         writer.on('error', reject);
       });
 
-      // Sessiyani saqlab qo'yamiz
       pendingSessions[chatId] = {
         rawPath,
         originalTitle: audio.title || audio.file_name,
@@ -70,7 +163,6 @@ bot.on('channel_post', async (ctx) => {
         originalMessageId: messageId
       };
 
-      // 2. Asl xabarni o'chirib, o'rniga "Musiqani kesamizmi?" degan tugmali xabar yuborish
       await ctx.telegram.deleteMessage(chatId, messageId);
 
       await ctx.telegram.sendMessage(chatId, "🎵 Musiqani kesamizmi?", {
@@ -84,6 +176,7 @@ bot.on('channel_post', async (ctx) => {
         }
       });
 
+    } tashkilCatch => { // syntax check
     } catch (err) {
       console.error("Processing Error:", err);
     }
@@ -115,95 +208,6 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
       parse_mode: 'Markdown'
     });
     session.promptMessageId = queryMessageId;
-  }
-});
-
-// Foydalanuvchi kanal chatiga `130:160` formatida vaqt yozganda ushlab olish
-bot.on('text', async (ctx) => {
-  const text = ctx.text ? ctx.text.trim() : '';
-  const chatId = ctx.chat.id;
-  const session = pendingSessions[chatId];
-
-  if (session && session.promptMessageId && text.includes(':')) {
-    const parts = text.split(':');
-    const startTime = parseInt(parts[0]);
-    const endTime = parseInt(parts[1]);
-
-    if (isNaN(startTime) || isNaN(endTime) || startTime >= endTime) {
-      await ctx.reply("❌ Noto'g'ri format! Qaytadan kiriting (Masalan: `130:160`):", { parse_mode: 'Markdown' });
-      return;
-    }
-
-    const duration = endTime - startTime;
-    const userMessageId = ctx.message.message_id;
-
-    await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
-    await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
-
-    const tempDir = path.join(__dirname, '../temp');
-    const trimmedPath = path.join(tempDir, `trimmed_${Date.now()}.mp3`);
-
-    // Jonli kutish effekti
-    let loadingMsg = await ctx.telegram.sendMessage(chatId, "⏳ Musiqa kesilmoqda 🔄");
-    const loadingAnimation = ['⏳ Musiqa kesilmoqda 🔄', '⌛️ Musiqa kesilmoqda 🔄.', '⏳ Musiqa kesilmoqda 🔄..', '⌛️ Musiqa kesilmoqda 🔄...'];
-    let animIndex = 0;
-
-    const interval = setInterval(async () => {
-      animIndex = (animIndex + 1) % loadingAnimation.length;
-      await ctx.telegram.editMessageText(chatId, loadingMsg.message_id, undefined, loadingAnimation[animIndex]).catch(() => {});
-    }, 1500);
-
-    try {
-      // 1. Kesish jarayoni
-      await trimAudio(session.rawPath, trimmedPath, startTime, duration);
-
-      clearInterval(interval);
-      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-
-      // 2. Kesilgan musiqani yuborish (Faqat caption bilan)
-      await ctx.telegram.sendAudio(
-        chatId,
-        { source: trimmedPath },
-        {
-          caption: config.captionTemplate,
-          parse_mode: 'HTML'
-        }
-      );
-
-      // 3. To'liq musiqani tahrirlab yuborish
-      const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
-      await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
-      const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.originalTitle);
-
-      const sentFullMessage = await ctx.telegram.sendAudio(
-        chatId,
-        { source: taggedPath },
-        {
-          caption: config.captionTemplate,
-          parse_mode: 'HTML',
-          title: updatedTitle,
-          performer: config.defaultArtist
-        }
-      );
-
-      await setAutoReactions(ctx.telegram, chatId, sentFullMessage.message_id);
-
-      const notifyMsg = await ctx.telegram.sendMessage(chatId, `🎧 ${config.channelUsername} kanaliga tahrirlab joyladim✅`);
-      setTimeout(async () => {
-        await ctx.telegram.deleteMessage(chatId, notifyMsg.message_id).catch(() => {});
-      }, 5000);
-
-      [trimmedPath, taggedPath, session.rawPath].forEach(p => {
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      });
-
-      delete pendingSessions[chatId];
-
-    } catch (err) {
-      clearInterval(interval);
-      console.error("Trim & Process Error:", err);
-      await ctx.telegram.sendMessage(chatId, "❌ Xatolik yuz berdi! Musiqani kesib bo'lmadi.");
-    }
   }
 });
 

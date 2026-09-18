@@ -10,7 +10,6 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     const hasStartTag = startTagPath && fs.existsSync(startTagPath);
     const hasEndTag = endTagPath && fs.existsSync(endTagPath);
 
-    // Agar voice tag fayllari bo'lmasa, faylni to'g'ridan-to me'yori bo'yicha ko'chiradi
     if (!hasStartTag && !hasEndTag) {
       fs.copyFileSync(inputPath, outputPath);
       return resolve(outputPath);
@@ -33,7 +32,6 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
       command.input(endTagPath);
     }
 
-    // Audio streamlarni ketma-ket ulash (concat)
     let concatInputs = '';
     let totalStreams = 0;
 
@@ -62,4 +60,24 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
   });
 }
 
-module.exports = { processAudioWithVoiceTag };
+/**
+ * Musiqani belgilangan vaqt oralig'ida kesish (Trim)
+ * @param {string} inputPath - Asl fayl yo'li
+ * @param {string} outputPath - Kesilgan fayl saqlanadigan yo'l
+ * @param {number} startSeconds - Boshlanish vaqti (sekundda)
+ * @param {number} duration - Davomiyligi (sekundda: end - start)
+ */
+function trimAudio(inputPath, outputPath, startSeconds, duration) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .setStartTime(startSeconds)
+      .setDuration(duration)
+      .audioCodec('libmp3lame')
+      .audioBitrate('320k')
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(err))
+      .save(outputPath);
+  });
+}
+
+module.exports = { processAudioWithVoiceTag, trimAudio };

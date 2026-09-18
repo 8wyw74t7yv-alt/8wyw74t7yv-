@@ -9,7 +9,7 @@ module.exports = {
   auddApiKey: process.env.AUDD_API_KEY || "",
   
   // Ruxsat berilgan reaksiyalar
-  reactions: ["🔥", "🖤", "🎧", "⚡️", "🤙"],
+  reactions: ["🔥", "👍", "⚡️", "🤩", "🫡"],
   
   // Shablondagi artist va standart nom
   defaultArtist: "-MuzXs",

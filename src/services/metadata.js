@@ -11,7 +11,7 @@ function isGibberishTitle(title) {
   const clean = title.trim();
   if (clean.length < 2) return true;
   
-  const onlyNumbersOrSymbols = /^[\d\s\-_.~!@#$%^&*()+=]+$/;
+  const onlyNumbersOrSymbols = /^[\d\s\-_.~!@#$\%^&*()+=]+$/;
   const isAudioFilename = /^audio_\d+|^track_\d+|^file_\d+/i;
 
   return onlyNumbersOrSymbols.test(clean) || isAudioFilename.test(clean);
@@ -47,7 +47,7 @@ function getCoverBuffer() {
     path.join(process.cwd(), 'assets')
   ];
   
-  // photo.JPG va boshqa nomlar
+  // photo.JPG birinchi navbatda qidiriladi
   const possibleFiles = ['photo.JPG', 'photo.jpg', 'cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG'];
   
   for (const dir of possibleDirs) {
@@ -55,11 +55,15 @@ function getCoverBuffer() {
       const filePath = path.join(dir, fileName);
       if (fs.existsSync(filePath)) {
         try {
+          console.log(`[Cover Log] Albom rasmi topildi: ${filePath}`);
           return fs.readFileSync(filePath);
-        } catch (e) {}
+        } catch (e) {
+          console.error(`[Cover Log] Rasmni o'qishda xatolik: ${e.message}`);
+        }
       }
     }
   }
+  console.log("[Cover Log] OGOHLANTIRISH: assets papkasida photo.JPG topilmadi!");
   return null;
 }
 
@@ -83,7 +87,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     }
   };
 
-  // Faqat lokal assets papkasidan rasmni olamiz (GitHub shart emas)
+  // Faqat lokal assets/photo.JPG rasmini yopishtiramiz
   const imageBuffer = getCoverBuffer();
 
   if (imageBuffer) {

@@ -87,7 +87,7 @@ bot.on('channel_post', async (ctx) => {
         }
       );
 
-      // 6. Avtomatik reaksiyalarni (🔥, 🖤, 🎧, ⚡️, 🤙) bosish
+      // 6. Avtomatik reaksiyalarni (🔥, 👍, ⚡️, 🤩, 🫡) bosish
       await setAutoReactions(ctx.telegram, chatId, sentMessage.message_id);
 
     } catch (err) {

@@ -2,6 +2,7 @@ const NodeID3 = require('node-id3');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const FormData = require('form-data'); // <-- Bu qator qo'shildi
 const config = require('../config');
 
 // Sarlavha tushunarsiz raqamlar yoki belgilardan iboratligini aniqlash
@@ -10,7 +11,6 @@ function isGibberishTitle(title) {
   const clean = title.trim();
   if (clean.length < 2) return true;
   
-  // Faqat raqamlar, tushunarsiz simvollar yoki fayl kengaytmasi bo'lsa
   const onlyNumbersOrSymbols = /^[\d\s\-_.~!@#$%^&*()+=]+$/;
   const isAudioFilename = /^audio_\d+|^track_\d+|^file_\d+/i;
 
@@ -39,12 +39,11 @@ async function identifyTrackTitle(filePath) {
   return null;
 }
 
-// Local assets papkasidan (cover.JPG / cover.jpg) yoki GitHub'dan albom rasmini olish
+// Local assets papkasidan yoki GitHub'dan albom rasmini olish
 async function fetchCoverBuffer(url) {
   const assetsDir = path.join(__dirname, '../../assets');
   const possibleFiles = ['cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png', 'cover.PNG'];
   
-  // 1. Birinchi navbatda local assets/ papkasidagi rasmlarni tekshiramiz
   for (const fileName of possibleFiles) {
     const filePath = path.join(assetsDir, fileName);
     if (fs.existsSync(filePath)) {
@@ -52,7 +51,6 @@ async function fetchCoverBuffer(url) {
     }
   }
 
-  // 2. Agar local papkada rasm topilmasa, GitHub URL orqali yuklaydi
   if (url) {
     try {
       const response = await axios.get(url, { responseType: 'arraybuffer' });
@@ -64,7 +62,7 @@ async function fetchCoverBuffer(url) {
   return null;
 }
 
-// ID3 Metadatalarni to'liq qayta yozish va tozalash
+// ID3 Metadatalarni yozish
 async function cleanAndInjectMetadata(filePath, originalTitle) {
   let finalTitle = originalTitle;
 
@@ -96,8 +94,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     };
   }
 
-  // Eski barcha teglarni tozalab, yangisini yozamiz
-  NodeID3.clearTags(filePath);
+  // NodeID3.write metodining o'zi eski teglarni avtomatik almashtiradi
   NodeID3.write(tags, filePath);
 
   return finalTitle;

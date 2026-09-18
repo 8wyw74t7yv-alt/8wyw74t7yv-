@@ -39,7 +39,9 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
       concatInputs += '[0:a]';
       totalStreams++;
     }
-    concatInputs += `[${mainIndex}:a]`.replace('mainIndex', mainAudioIndex);
+    
+    // Xatolik to'g'irlandi: mainIndex o'rniga to'g'ridan-to'g'ri mainAudioIndex ishlatildi
+    concatInputs += `[${mainAudioIndex}:a]`;
     totalStreams++;
 
     if (hasEndTag) {
@@ -62,10 +64,6 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
 
 /**
  * Musiqani belgilangan vaqt oralig'ida kesish (Trim) va BARCHA METADATALARNI TOZALASH
- * @param {string} inputPath - Asl fayl yo'li
- * @param {string} outputPath - Kesilgan fayl saqlanadigan yo'l
- * @param {number} startSeconds - Boshlanish vaqti (sekundda)
- * @param {number} duration - Davomiyligi (sekundda: end - start)
  */
 function trimAudio(inputPath, outputPath, startSeconds, duration) {
   return new Promise((resolve, reject) => {
@@ -73,7 +71,7 @@ function trimAudio(inputPath, outputPath, startSeconds, duration) {
       .setStartTime(startSeconds)
       .setDuration(duration)
       .outputOptions([
-        '-map_metadata -1' // <-- Eski sarlavha, artist va barcha metadatalarni o'chirib tashlaydi
+        '-map_metadata -1'
       ])
       .audioCodec('libmp3lame')
       .audioBitrate('320k')

@@ -45,23 +45,27 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     // 2. Agar faqat boshiga tag qo'shilsa
     if (hasStartTag && !hasEndTag) {
       filterString += 
-        `[0:a]${voiceFxChain}[tag_fx];` +
-        `[main_slow][tag_fx]amix=inputs=2:duration=first:weights=1 0.75:dropout_transition=2[outa]`;
+        `[0:a]${voiceFxChain},aformat=channel_layouts=stereo,adelay=10000|10000,asplit=2[tag_mix][tag_side];` +
+        `[main_slow][tag_side]sidechaincompress=threshold=0.05:ratio=4:attack=500:release=1000[main_ducked];` +
+        `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 0.75:dropout_transition=2[outa]`;
     } 
     // 3. Agar faqat oxiriga tag qo'shilsa
     else if (!hasStartTag && hasEndTag) {
       const endTagInputIndex = mainIndex; 
       filterString += 
-        `[${endTagInputIndex}:a]${voiceFxChain}[tag_fx];` +
-        `[main_slow][tag_fx]amix=inputs=2:duration=first:weights=1 0.75:dropout_transition=2[outa]`;
+        `[${endTagInputIndex}:a]${voiceFxChain},aformat=channel_layouts=stereo,asplit=2[tag_mix][tag_side];` +
+        `[main_slow][tag_side]sidechaincompress=threshold=0.05:ratio=4:attack=500:release=1000[main_ducked];` +
+        `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 0.75:dropout_transition=2[outa]`;
     } 
     // 4. Ham boshiga, ham oxiriga qo'shilsa
     else if (hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
       filterString += 
-        `[0:a]${voiceFxChain}[s_tag];` +
-        `[${endTagIndex}:a]${voiceFxChain}[e_tag];` +
-        `[main_slow][s_tag][e_tag]amix=inputs=3:duration=first:weights=1 0.65 0.65:dropout_transition=2[outa]`;
+        `[0:a]${voiceFxChain},aformat=channel_layouts=stereo,adelay=10000|10000,asplit=2[s_tag_mix][s_tag_side];` +
+        `[${endTagIndex}:a]${voiceFxChain},aformat=channel_layouts=stereo,asplit=2[e_tag_mix][e_tag_side];` +
+        `[main_slow][s_tag_side]sidechaincompress=threshold=0.05:ratio=4:attack=500:release=1000[duck1];` +
+        `[duck1][e_tag_side]sidechaincompress=threshold=0.05:ratio=4:attack=500:release=1000[main_ducked];` +
+        `[main_ducked][s_tag_mix][e_tag_mix]amix=inputs=3:duration=first:weights=1 0.65 0.65:dropout_transition=2[outa]`;
     }
 
     filterComplex.push(filterString);

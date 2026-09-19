@@ -40,13 +40,14 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     // 1. Asosiy musiqani slowed qilamiz va formatlaymiz
     let filterString = `[${mainIndex}:a]atempo=0.93,${format}[main_slow];`;
 
-    // Qiz bolaning ovozi uchun filtr:
-    const voiceFxChain = `volume=1.5,asetrate=44100*1.25,atempo=0.8,aecho=0.8:0.9:300|600:0.3|0.2,${format}`;
+    // MUHIM O'ZGARISH: Qiz bolaning ovozini yoqimli va ehtirosli qilish uchun parametrlar sozlandi
+    // asetrate=44100*1.12 (ovozni mayin ingichkalashtiradi), atempo=0.89 (tezligini to'g'irlaydi)
+    // aecho - ehtirosli va chuqur (lush) aks-sado beradi
+    const voiceFxChain = `volume=1.5,asetrate=44100*1.12,atempo=0.89,aecho=0.8:0.9:350|700:0.4|0.2,${format}`;
 
     // OVOZ PASAYISHI VA KO'TARILISHI (Ducking)
     const duckParams = "sidechaincompress=threshold=0.03:ratio=8:attack=800:release=2000";
 
-    // MUHIM O'ZGARISH: apad - qisqa audio tugagach FFmpeg asosiy musiqani qirqib tashlamasligi uchun sukunat bilan to'ldiradi
     // 2. Agar faqat boshiga tag qo'shilsa
     if (hasStartTag && !hasEndTag) {
       filterString += 
@@ -58,19 +59,20 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     else if (!hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
       filterString += 
-        `[${endTagIndex}:a]${voiceFxChain},apad,asplit=2[tag_mix][tag_side];` +
+        `[${endTagIndex}:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
         `[main_slow][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     } 
     // 4. Ham boshiga, ham oxiriga qo'shilsa
     else if (hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
+      // XATONI TUZATISH: End tag 0-soniyada ijro etilib ketmasligi uchun uni anullsink orqali "yutib yuboramiz"
+      // va faqatgina 10-soniyada ijro etiladigan 1 ta audio tag qoldiramiz.
       filterString += 
-        `[0:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[s_tag_mix][s_tag_side];` +
-        `[${endTagIndex}:a]${voiceFxChain},apad,asplit=2[e_tag_mix][e_tag_side];` +
-        `[main_slow][s_tag_side]${duckParams}[duck1];` +
-        `[duck1][e_tag_side]${duckParams}[main_ducked];` +
-        `[main_ducked][s_tag_mix][e_tag_mix]amix=inputs=3:duration=first:weights=1 1 1:dropout_transition=2[outa]`;
+        `[0:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
+        `[${endTagIndex}:a]anullsink;` +
+        `[main_slow][tag_side]${duckParams}[main_ducked];` +
+        `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     }
 
     filterComplex.push(filterString);

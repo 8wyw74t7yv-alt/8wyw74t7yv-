@@ -3,7 +3,7 @@
 # ---------------------------------------------------
 FROM node:18-slim
 
-# FFmpeg (Telegram bot uchun) va Python3 + Supervisor (YouTube bot uchun) o'rnatamiz
+# FFmpeg, Python3 va Supervisor o'rnatamiz
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
@@ -13,25 +13,28 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Node.js loyiha fayllari va kutubxonalarini o'rnatish
+# Node.js fayllari va paketlarini o'rnatish
 COPY package*.json ./
 RUN npm install --production
 
 # ---------------------------------------------------
-# 2. PASTKI QISMI: Python YouTube Comment Bot uchun muhit
+# 2. PASTKI QISMI: Python paketlarini o'rnatish
 # ---------------------------------------------------
 
-# Python paketlarini (google-api-python-client, google-genai va h.k.) o'rnatish
-COPY comment_bot/requirements.txt ./comment_bot/
-RUN pip3 install --no-cache-dir -r comment_bot/requirements.txt
+# Root'dagi va YouTube bot'dagi har ikkala requirements faylini o'rnatamiz
+COPY requirements.txt ./
+COPY my-project/comment_bot/requirements.txt ./comment_bot/
 
-# Barcha kod va aktivlarni nusxalash
+RUN pip3 install --no-cache-dir -r requirements.txt && \
+    pip3 install --no-cache-dir -r comment_bot/requirements.txt
+
+# Barcha loyiha fayllarini nusxalash
 COPY . .
 
 # Kerakli papkalarni yaratish
 RUN mkdir -p assets temp comment_bot
 
-# Supervisor konfiguratsiyasini mos joyga nusxalash
+# Supervisor konfiguratsiyasini nusxalash
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # ---------------------------------------------------

@@ -50,9 +50,9 @@ bot.on('message', async (ctx, next) => {
 
       const userMessage = msg.text;
 
-      // Gemini AI orqali javob generatsiya qilish (@google/genai standartiga mos)
+      // Gemini AI orqali javob generatsiya qilish (gemini-3.6-flash modeli)
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.6-flash',
         contents: userMessage,
         config: {
           systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
@@ -300,7 +300,7 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, customTitle, start
 
     const notifyMsg = await ctx.telegram.sendMessage(chatId, `🎧 ${config.channelUsername} kanaliga tahrirlab joyladim✅`);
     setTimeout(async () => {
-      await ctx.telegram.deleteMessage(chatId, notifyMsg.message_id).catch(() => {});
+      await ctx.telegram.deleteMessage(ctx.chat.id, notifyMsg.message_id).catch(() => {});
     }, 5000);
 
   } catch (err) {

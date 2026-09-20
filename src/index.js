@@ -1,5 +1,5 @@
 const { Telegraf } = require('telegraf');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generativeai');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -10,8 +10,12 @@ const { setAutoReactions } = require('./services/telegram');
 
 const bot = new Telegraf(config.botToken);
 
-// Gemini AI ni sozlash
-const ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY });
+// Gemini AI ni to'g'ri sozlash (@google/generativeai yordamida)
+const genAI = new GoogleGenerativeAI(config.geminiApiKey || process.env.GEMINI_API_KEY);
+const aiModel = genAI.getGenerativeModel({ 
+  model: 'gemini-1.5-flash',
+  systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
+});
 
 const pendingSessions = {};
 
@@ -51,15 +55,8 @@ bot.on('message', async (ctx, next) => {
       const userMessage = msg.text;
 
       // Gemini AI orqali javob generatsiya qilish
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: userMessage,
-        config: {
-          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
-        }
-      });
-
-      const aiReply = response.text;
+      const result = await aiModel.generateContent(userMessage);
+      const aiReply = result.response.text();
 
       // Guruhdagi xabarga reply tarzida yuborish
       await ctx.reply(aiReply, {

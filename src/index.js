@@ -1,5 +1,5 @@
 const { Telegraf } = require('telegraf');
-const { GoogleGenAI } = require('@google/genai'); // Gemini AI uchun qo'shildi
+const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -10,7 +10,7 @@ const { setAutoReactions } = require('./services/telegram');
 
 const bot = new Telegraf(config.botToken);
 
-// Gemini AI ni sozlash (API kalit config yoki environment'dan olinadi)
+// Gemini AI ni sozlash
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY });
 
 const pendingSessions = {};
@@ -33,26 +33,13 @@ function getCoverPath() {
   return null;
 }
 
-bot.use(async (ctx, next) => {
-  const fromId = ctx.from ? ctx.from.id : null;
-  // Agar guruhdan xabar kelsa yoki admin yozsa o'tkazib yuboramiz (Gemini uchun guruh xabarlarini tutamiz)
-  if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup')) return next();
-  if (ctx.channelPost) return next();
-  if (fromId === config.adminId) return next();
-  return;
-});
-
-bot.start((ctx) => {});
-bot.help((ctx) => {});
-
 // ==========================================
-// GEMINI AI GURUHDA ISHLASH MANTIQI (YANGI)
+// 1. GURUHDAGI XABARLAR UCHUN GEMINI AI MANTIQI
 // ==========================================
 bot.on('message', async (ctx, next) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return next();
 
-  const chatId = msg.chat.id;
   const chatType = msg.chat.type;
 
   // Faqat guruh va superguruhlarda ishlashi uchun
@@ -78,17 +65,28 @@ bot.on('message', async (ctx, next) => {
       await ctx.reply(aiReply, {
         reply_to_message_id: msg.message_id
       });
-
+      return; // Guruhda ishlasa, boshqa tekshiruvlarga o'tmasin
     } catch (error) {
       console.error("Gemini AI xatoligi:", error);
     }
   }
-  
+
   return next();
 });
 
+// Admin yoki boshqa shaxsiy xabarlar uchun umumiy filter
+bot.use(async (ctx, next) => {
+  const fromId = ctx.from ? ctx.from.id : null;
+  if (ctx.channelPost) return next();
+  if (fromId === config.adminId) return next();
+  return;
+});
+
+bot.start((ctx) => {});
+bot.help((ctx) => {});
+
 // ==========================================
-// ASOSIY MUSIQA BOTI MANTIQI (O'ZGARISHSIZ)
+// 2. KANALDA MUSIQANI BOSHQARISH MANTIQI
 // ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
@@ -101,16 +99,14 @@ bot.on('channel_post', async (ctx) => {
     const text = post.text.trim();
     const userMessageId = post.message_id;
 
-    // 1. Musiqa tashlangandan keyin BIRINCHI NAVBATDA title so'ralgandagi holat:
+    // 1. Title so'ralgandagi holat
     if (session.waitingForTitle) {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
-      // Title oxiriga 🎧 qo'shib saqlab qo'yamiz
       session.customTitle = `${text} 🎧`;
       session.waitingForTitle = false;
 
-      // Endi tugmalarni chiqaramiz: Kesamiz / Kesmaymiz
       const promptMsg = await ctx.telegram.sendMessage(chatId, "🎵 Musiqani kesamizmi?", {
         reply_markup: {
           inline_keyboard: [
@@ -125,7 +121,7 @@ bot.on('channel_post', async (ctx) => {
       return;
     }
 
-    // 2. "Kesamiz" bosilgandan keyin VAQT ORALIG'I yuborilgandagi holat:
+    // 2. Vaqt oralig'i yuborilgandagi holat
     if (session.waitingForTrimTime && text.includes(':')) {
       const parts = text.split(':');
       const startTime = parseInt(parts[0]);
@@ -161,17 +157,12 @@ bot.on('channel_post', async (ctx) => {
         clearInterval(interval);
         await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-        // Tepadagi kesilgan musiqa (bo'sh title/performer bilan)
         await ctx.telegram.sendAudio(
           chatId,
           { source: trimmedPath },
-          {
-            title: " ",
-            performer: " "
-          }
+          { title: " ", performer: " " }
         );
 
-        // Pastdagi to'liq musiqa (foydalanuvchi kiritgan custom title bilan)
         const taggedPath = path.join(path.dirname(session.rawPath), `tagged_${Date.now()}.mp3`);
         await processAudioWithVoiceTag(session.rawPath, taggedPath, session.startTagPath, session.endTagPath);
         const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.customTitle);
@@ -211,7 +202,7 @@ bot.on('channel_post', async (ctx) => {
     }
   }
 
-  // Musiqa kelganda birinchi bo'lib title so'raymiz
+  // Musiqa kelganda title so'rash
   if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
@@ -237,10 +228,8 @@ bot.on('channel_post', async (ctx) => {
         writer.on('error', reject);
       });
 
-      // Eski musiqaning o'zini o'chiramiz
       await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
 
-      // Sessionalarni saqlaymiz va title so'rashni boshlaymiz
       const promptMsg = await ctx.telegram.sendMessage(chatId, "✍️ Musiqa uchun **title (nom)** yuboring:", {
         parse_mode: 'Markdown'
       });
@@ -274,13 +263,10 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
 
   if (action === 'no') {
-    // Kesmaymiz bosilsa, to'g'ridan-to'g'ri o'sha kiritilgan custom title bilan yuboramiz
     await ctx.deleteMessage().catch(() => {});
     await processAndSendFinalAudio(ctx, chatId, session.rawPath, session.customTitle, session.startTagPath, session.endTagPath);
     delete pendingSessions[chatId];
-
   } else if (action === 'yes') {
-    // Kesamiz bosilsa, vaqt oralig'ini so'raymiz
     session.waitingForTrimTime = true;
     await ctx.editMessageText("⏱ Musiqa kesish uchun vaqt oralig'ini yuboring (Masalan: `130:160` formatida):", {
       parse_mode: 'Markdown'
@@ -327,7 +313,7 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, customTitle, start
 }
 
 bot.launch().then(() => {
-  console.log("MuzXs Bot muvaffaqiyatli ishga tushdi.");
+  console.log("MuzXs Bot muvaffaqiyatli ishga tushdi va guruhlar uchun tayyor.");
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));

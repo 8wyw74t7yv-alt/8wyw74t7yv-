@@ -15,8 +15,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# 4. Python paketlarini faylsiz, to'g'ridan-to'g'ri o'rnatish (Barcha kerakli kutubxonalar)
-RUN pip3 install --no-cache-dir \
+# 4. Python paketlarini --break-system-packages bayrog'i bilan o'rnatish
+RUN pip3 install --no-cache-dir --break-system-packages \
     google-api-python-client \
     google-auth-oauthlib \
     google-auth-httplib2 \

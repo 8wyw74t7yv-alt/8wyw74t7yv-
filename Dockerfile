@@ -1,9 +1,7 @@
-# ---------------------------------------------------
-# 1. TEPASI: Node.js Telegram bot uchun muhit
-# ---------------------------------------------------
+# 1. Base Image: Node.js 18-slim
 FROM node:18-slim
 
-# FFmpeg, Python3 va Supervisor o'rnatamiz
+# 2. System paketlari (FFmpeg, Python3, Pip va Supervisor)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
@@ -13,31 +11,25 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Node.js fayllari va paketlarini o'rnatish
+# 3. Node.js paketlarini o'rnatish
 COPY package*.json ./
 RUN npm install --production
 
-# ---------------------------------------------------
-# 2. PASTKI QISMI: Python paketlarini o'rnatish
-# ---------------------------------------------------
+# 4. Python paketlarini faylsiz, to'g'ridan-to'g'ri o'rnatish (Barcha kerakli kutubxonalar)
+RUN pip3 install --no-cache-dir \
+    google-api-python-client \
+    google-auth-oauthlib \
+    google-auth-httplib2 \
+    google-genai
 
-# Root'dagi va YouTube bot'dagi har ikkala requirements faylini o'rnatamiz
-COPY requirements.txt ./
-COPY my-project/comment_bot/requirements.txt ./comment_bot/
-
-RUN pip3 install --no-cache-dir -r requirements.txt && \
-    pip3 install --no-cache-dir -r comment_bot/requirements.txt
-
-# Barcha loyiha fayllarini nusxalash
+# 5. Barcha loyiha fayllarini ko'chirish
 COPY . .
 
-# Kerakli papkalarni yaratish
-RUN mkdir -p assets temp comment_bot
+# 6. Kerakli papkalarni yaratish
+RUN mkdir -p assets temp
 
-# Supervisor konfiguratsiyasini nusxalash
+# 7. Supervisor sozlamasini o'rnatish
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# ---------------------------------------------------
-# 3. IKKALA BOTNI BIR VAQTDA ISHGA TUSHIRISH
-# ---------------------------------------------------
+# 8. Ikkala botni bir vaqtda ishga tushirish
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

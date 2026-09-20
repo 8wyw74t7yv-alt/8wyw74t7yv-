@@ -15,12 +15,14 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# 4. Python paketlarini --break-system-packages bayrog'i bilan o'rnatish
+# # 4. Python paketlarini --break-system-packages bayrog'i bilan o'rnatish
 RUN pip3 install --no-cache-dir --break-system-packages \
     google-api-python-client \
     google-auth-oauthlib \
     google-auth-httplib2 \
-    google-genai
+    google-genai \
+    google-generativeai
+
 
 # 5. Barcha loyiha fayllarini ko'chirish
 COPY . .

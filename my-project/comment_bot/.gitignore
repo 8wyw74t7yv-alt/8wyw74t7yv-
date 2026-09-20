@@ -1,8 +1,0 @@
-# Google API va OAuth maxfiy fayllari
-client_secret.json
-token.json
-
-# Cache va vaqtinchalik fayllar
-__pycache__/
-*.pyc
-*.log

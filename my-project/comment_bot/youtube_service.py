@@ -1,4 +1,5 @@
 import os
+import json
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -19,11 +20,19 @@ class YouTubeService:
         self.youtube = build('youtube', 'v3', credentials=self.creds)
 
     def _authenticate(self):
-        """Google OAuth 2.0 orqali avtorizatsiyadan o'tish"""
+        """Google OAuth 2.0 orqali avtorizatsiyadan o'tish (Fly.io Secret va lokal fayllarni qo'llab-quvvatlaydi)"""
+        
+        # 1. Fly.io Secrets'da CLIENT_SECRET_JSON bo'lsa va fayl hali yo'q bo me, uni avtomatik yaratib oladi
+        env_secret = os.environ.get("CLIENT_SECRET_JSON")
+        if env_secret and not os.path.exists(self.client_secret_file):
+            with open(self.client_secret_file, "w") as f:
+                f.write(env_secret)
+
+        # 2. Token mavjud bo'lsa yuklaymiz
         if os.path.exists(self.token_file):
             self.creds = Credentials.from_authorized_user_file(self.token_file, SCOPES)
         
-        # Token mavjud bo'lmasa yoki muddati o'tgan bo'lsa
+        # 3. Token mavjud bo'lmasa yoki muddati o'tgan bo'lsa
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
                 self.creds.refresh(Request())
@@ -31,7 +40,7 @@ class YouTubeService:
                 if not os.path.exists(self.client_secret_file):
                     raise FileNotFoundError(
                         f"OAuth fayli topilmadi: {self.client_secret_file}. "
-                        "Google Cloud Console'dan client_secret.json faylini yuklab oling va ushbu papkaga joylang."
+                        "Fly.io Secrets orqali CLIENT_SECRET_JSON o'rnatilganini yoki fayl papkada borligini tekshiring."
                     )
                 flow = InstalledAppFlow.from_client_secrets_file(
                     self.client_secret_file, SCOPES)

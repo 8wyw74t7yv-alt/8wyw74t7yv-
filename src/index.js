@@ -55,7 +55,7 @@ bot.on('message', async (ctx, next) => {
         model: 'gemini-3.6-flash',
         contents: userMessage,
         config: {
-          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Sizning egangiz @mrxruslan(Ruslan) buni esingizdan chiqarmang, va hamma javob ohirida, aytib turing. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
+          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Sizning egangiz @muz_xs-Ruslan buni esingizdan chiqarmang, va hamma javob ohirida, aytib turing. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
         }
       });
 

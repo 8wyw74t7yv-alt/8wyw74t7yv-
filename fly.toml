@@ -2,12 +2,11 @@ app = "8wyw74t7yv-alt"
 primary_region = "fra"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "my-project/Dockerfile"
 
 [env]
   NODE_ENV = "production"
 
-# 1 GB RAM va 1 CPU sozlashi
 [vm]
   cpu_kind = "shared"
   cpus = 1

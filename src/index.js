@@ -1,4 +1,5 @@
 const { Telegraf } = require('telegraf');
+const { GoogleGenAI } = require('@google/genai'); // Gemini AI uchun qo'shildi
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -8,6 +9,9 @@ const { cleanAndInjectMetadata } = require('./services/metadata');
 const { setAutoReactions } = require('./services/telegram');
 
 const bot = new Telegraf(config.botToken);
+
+// Gemini AI ni sozlash (API kalit config yoki environment'dan olinadi)
+const ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY });
 
 const pendingSessions = {};
 
@@ -31,6 +35,8 @@ function getCoverPath() {
 
 bot.use(async (ctx, next) => {
   const fromId = ctx.from ? ctx.from.id : null;
+  // Agar guruhdan xabar kelsa yoki admin yozsa o'tkazib yuboramiz (Gemini uchun guruh xabarlarini tutamiz)
+  if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup')) return next();
   if (ctx.channelPost) return next();
   if (fromId === config.adminId) return next();
   return;
@@ -39,6 +45,51 @@ bot.use(async (ctx, next) => {
 bot.start((ctx) => {});
 bot.help((ctx) => {});
 
+// ==========================================
+// GEMINI AI GURUHDA ISHLASH MANTIQI (YANGI)
+// ==========================================
+bot.on('message', async (ctx, next) => {
+  const msg = ctx.message;
+  if (!msg || !msg.text) return next();
+
+  const chatId = msg.chat.id;
+  const chatType = msg.chat.type;
+
+  // Faqat guruh va superguruhlarda ishlashi uchun
+  if (chatType === 'group' || chatType === 'supergroup') {
+    try {
+      // Botning o'z xabariga javob bermasligi uchun
+      if (msg.from && msg.from.is_bot) return;
+
+      const userMessage = msg.text;
+
+      // Gemini AI orqali javob generatsiya qilish
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: userMessage,
+        config: {
+          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
+        }
+      });
+
+      const aiReply = response.text;
+
+      // Guruhdagi xabarga reply tarzida yuborish
+      await ctx.reply(aiReply, {
+        reply_to_message_id: msg.message_id
+      });
+
+    } catch (error) {
+      console.error("Gemini AI xatoligi:", error);
+    }
+  }
+  
+  return next();
+});
+
+// ==========================================
+// ASOSIY MUSIQA BOTI MANTIQI (O'ZGARISHSIZ)
+// ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
   if (!post) return;

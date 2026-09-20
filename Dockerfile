@@ -15,14 +15,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# # 4. Python paketlarini --break-system-packages bayrog'i bilan o'rnatish
+# 4. Python paketlarini --break-system-packages bayrog'i bilan o'rnatish (Gemini uchun)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    google-api-python-client \
-    google-auth-oauthlib \
-    google-auth-httplib2 \
     google-genai \
     google-generativeai
-
 
 # 5. Barcha loyiha fayllarini ko'chirish
 COPY . .
@@ -33,5 +29,5 @@ RUN mkdir -p assets temp
 # 7. Supervisor sozlamasini o'rnatish
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# 8. Ikkala botni bir vaqtda ishga tushirish
+# 8. Botni ishga tushirish
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

@@ -2,7 +2,7 @@ app = "8wyw74t7yv-alt"
 primary_region = "fra"
 
 [build]
-  dockerfile = "my-project/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   NODE_ENV = "production"

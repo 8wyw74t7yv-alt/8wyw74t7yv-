@@ -1,12 +1,11 @@
 # 1. Base Image: Node.js 18-slim
 FROM node:18-slim
 
-# 2. System paketlari (FFmpeg, Python3, Pip va Supervisor)
+# 2. System paketlari (FFmpeg va Python)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
     python3-pip \
-    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -15,7 +14,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# 4. Python paketlarini --break-system-packages bayrog'i bilan o'rnatish (Gemini uchun)
+# 4. Python paketlarini o'rnatish (Gemini uchun)
 RUN pip3 install --no-cache-dir --break-system-packages \
     google-genai \
     google-generativeai
@@ -26,8 +25,5 @@ COPY . .
 # 6. Kerakli papkalarni yaratish
 RUN mkdir -p assets temp
 
-# 7. Supervisor sozlamasini o'rnatish
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
-# 8. Botni ishga tushirish
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# 7. Botni to'g'ridan-to'g'ri Node orqali ishga tushirish
+CMD ["node", "src/index.js"]

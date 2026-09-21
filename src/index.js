@@ -7,7 +7,7 @@ const config = require('./config');
 const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
 const { setAutoReactions } = require('./services/telegram');
-const { downloadMedia, downloadAudioWithTag } = require('./services/downloader'); // Yangi yuklovchi servis
+const { downloadMedia, downloadAudioWithTag } = require('./services/downloader');
 
 const bot = new Telegraf(config.botToken);
 
@@ -44,7 +44,6 @@ function getCoverPath() {
 // ==========================================
 bot.on('callback_query', async (ctx, next) => {
   try {
-    // Telegramga so'rov kelganini darhol bildiramiz (60 soniyalik limit tugashining oldini oladi)
     await ctx.answerCbQuery("⏳ Jarayon boshlandi, iltimos kuting...").catch(() => {});
   } catch (error) {
     console.error("Callback query error:", error);
@@ -53,21 +52,23 @@ bot.on('callback_query', async (ctx, next) => {
 });
 
 // ==========================================
-// 1. REELS, SHORTS VA TIKTOK MEDIA YUKLOVCHI MANTIQ
+// 1. YAGONA MESSAGE HANDLER (URL Yuklovchi + Gemini AI)
 // ==========================================
 bot.on('message', async (ctx, next) => {
   const msg = ctx.message;
   if (!msg || !msg.text) return next();
 
-  const match = msg.text.match(URL_REGEX);
+  const text = msg.text;
+  const chatId = msg.chat.id;
+  const userId = msg.from.id;
+  const chatType = msg.chat.type;
 
-  // Agar xabarda Instagram, YouTube yoki TikTok havolasi bo'lsa
+  // A) Instagram, YouTube yoki TikTok havolasi kelsa
+  const match = text.match(URL_REGEX);
   if (match) {
     const url = match[0];
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
 
-    // 1. Timeout / Rate-limit tekshiruvi (15 soniya ichida qayta yuborishni cheklash)
+    // 1. Timeout / Rate-limit tekshiruvi (15 soniya)
     const lastRequest = userCooldown.get(userId);
     if (lastRequest && Date.now() - lastRequest < 15000) {
       const warnMsg = await ctx.reply("⚠️ Iltimos, keyingi havolani yuborishdan oldin 15 soniya kuting!");
@@ -80,7 +81,7 @@ bot.on('message', async (ctx, next) => {
     // 2. Foydalanuvchining asl havolasini chatdan o'chirish
     await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
 
-    // 3. Inline tugmali vaqtinchalik xabar chiqarish
+    // 3. Inline tugmali menyu chiqarish
     const menuMsg = await ctx.reply(
       "🎬 **Media yuklash menyusi**\n\nQuyidagi tugmalardan birini tanlang:",
       {
@@ -94,11 +95,38 @@ bot.on('message', async (ctx, next) => {
       }
     );
 
-    // Keshga havola ma'lumotlarini vaqtinchalik saqlaymiz
     urlCache.set(`dl_video_${Date.now()}`, { url, chatId, menuMessageId: menuMsg.message_id, type: 'video' });
     urlCache.set(`dl_audio_${Date.now()}`, { url, chatId, menuMessageId: menuMsg.message_id, type: 'audio' });
+    return; // Havola bo'lgani uchun boshqa tekshiruvlarga o'tmaydi
+  }
 
-    return; // Media havola bo'lgani uchun Gemini AI bo'limiga O'TMAYDI
+  // B) Guruhda Gemini AI ga murojaat qilinsa
+  if (chatType === 'group' || chatType === 'supergroup') {
+    try {
+      if (msg.from && msg.from.is_bot) return next();
+
+      const userMessage = text.toLowerCase();
+      const botUsername = ctx.botInfo.username.toLowerCase();
+
+      const isRepliedToBot = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === ctx.botInfo.id;
+      const isMentioned = userMessage.includes(`@${botUsername}`) || userMessage.startsWith('bot') || userMessage.startsWith('chatgpt') || userMessage.startsWith('gpt');
+
+      if (!isRepliedToBot && !isMentioned) return next();
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: text,
+        config: {
+          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Sizning egangiz @muz_xs-Ruslan buni esingizdan chiqarmang, va hamma javob oxirida aytib turing. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
+        }
+      });
+
+      const aiReply = response.text;
+      await ctx.reply(aiReply, { reply_to_message_id: msg.message_id });
+      return;
+    } catch (error) {
+      console.error("Gemini AI xatoligi:", error);
+    }
   }
 
   return next();
@@ -117,7 +145,6 @@ bot.action(/dl_(video|audio)_.+/, async (ctx) => {
 
   const { url, chatId, menuMessageId, type } = item;
 
-  // Menyuni status xabariga o'zgartiramiz
   await ctx.telegram.editMessageText(chatId, menuMessageId, undefined, "⏳ Media qayta ishlanmoqda, kuting...").catch(() => {});
 
   try {
@@ -128,20 +155,14 @@ bot.action(/dl_(video|audio)_.+/, async (ctx) => {
     ]);
 
     if (type === 'video') {
-      // Videoni yuklash va yuborish (1080p va 100MB limit bilan)
       const videoPath = await downloadMedia(url, 'video');
       await ctx.replyWithVideo(
         { source: videoPath },
-        {
-          caption: captionText,
-          parse_mode: 'HTML',
-          ...extraButtons
-        }
+        { caption: captionText, parse_mode: 'HTML', ...extraButtons }
       );
       if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
 
     } else if (type === 'audio') {
-      // Audioni brendlab, tag va muqova qo'shib yuklash
       const coverPath = getCoverPath();
       const startTagPath = path.join(__dirname, '../assets/voicetag_start.mp3');
       
@@ -161,7 +182,6 @@ bot.action(/dl_(video|audio)_.+/, async (ctx) => {
       if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
     }
 
-    // Ish yakunlangach, status/menyu xabarini butunlay o'chiramiz
     await ctx.telegram.deleteMessage(chatId, menuMessageId).catch(() => {});
 
   } catch (error) {
@@ -171,49 +191,6 @@ bot.action(/dl_(video|audio)_.+/, async (ctx) => {
   } finally {
     urlCache.delete(actionKey);
   }
-});
-
-// ==========================================
-// 2. GURUHDAGI XABARLAR UCHUN GEMINI AI MANTIQI
-// ==========================================
-bot.on('message', async (ctx, next) => {
-  const msg = ctx.message;
-  if (!msg || !msg.text) return next();
-
-  const chatType = msg.chat.type;
-
-  if (chatType === 'group' || chatType === 'supergroup') {
-    try {
-      if (msg.from && msg.from.is_bot) return;
-
-      const userMessage = msg.text.toLowerCase();
-      const botUsername = ctx.botInfo.username.toLowerCase();
-
-      const isRepliedToBot = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === ctx.botInfo.id;
-      const isMentioned = userMessage.includes(`@${botUsername}`) || userMessage.startsWith('bot') || userMessage.startsWith('chatgpt') || userMessage.startsWith('gpt');
-
-      if (!isRepliedToBot && !isMentioned) return next();
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: msg.text,
-        config: {
-          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Sizning egangiz @muz_xs-Ruslan buni esingizdan chiqarmang, va hamma javob oxirida aytib turing. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
-        }
-      });
-
-      const aiReply = response.text;
-
-      await ctx.reply(aiReply, {
-        reply_to_message_id: msg.message_id
-      });
-      return;
-    } catch (error) {
-      console.error("Gemini AI xatoligi:", error);
-    }
-  }
-
-  return next();
 });
 
 // Admin yoki boshqa shaxsiy xabarlar uchun umumiy filter
@@ -228,7 +205,7 @@ bot.start((ctx) => {});
 bot.help((ctx) => {});
 
 // ==========================================
-// 3. KANALDA MUSIQANI BOSHQARISH MANTIQI
+// 2. KANALDA MUSIQANI BOSHQARISH MANTIQI
 // ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;

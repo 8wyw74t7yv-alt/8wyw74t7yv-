@@ -11,10 +11,9 @@ async function downloadMedia(url, type = 'video') {
   const tempDir = path.join(__dirname, '../temp');
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-  const outputTemplate = path.join(tempDir, `media_${Date.now()}.%(ext)s`);
+  const uniqueId = Date.now();
+  const outputTemplate = path.join(tempDir, `media_${uniqueId}.%(ext)s`);
   
-  // yt-dlp yordamida yuklash (1080p dan oshmaydigan va 100MB dan katta bo'lmagan formatni tanlaydi)
-  // --max-filesize 100M orqali serverni himoya qilamiz
   const formatArg = type === 'video' 
     ? 'bv*[height<=1080]+ba/b[height<=1080] / wv*+ba/w' 
     : 'ba';
@@ -24,20 +23,17 @@ async function downloadMedia(url, type = 'video') {
   try {
     await execPromise(command);
     
-    // Yuklangan faylni topish
+    // Temp papkasidagi shu uniqueId bilan boshlanuvchi faylni aniq topamiz
     const files = fs.readdirSync(tempDir);
-    const downloadedFile = files.find(file => file.startsWith(`media_${Date.now().toString().slice(0, -4)}`));
+    const targetFile = files.find(file => file.startsWith(`media_${uniqueId}.`));
     
-    // Agar aniq vaqt bo'yicha topilmasa, oxirgi yaratilgan faylni olamiz
-    const latestFile = files
-      .map(file => ({ file, mtime: fs.statSync(path.join(tempDir, file)).mtime }))
-      .sort((a, b) => b.mtime - a.mtime)[0];
+    if (!targetFile) {
+      throw new Error("Fayl yuklab olinmadi yoki hajm chekovidan oshib ketdi.");
+    }
 
-    if (!latestFile) throw new Error("Fayl yuklab olinmadi yoki hajm chekovidan oshib ketdi.");
-
-    return path.join(tempDir, latestFile.file);
+    return path.join(tempDir, targetFile);
   } catch (error) {
-    console.error("yt-dlp execution error:", error);
+    console.error("yt-dlp execution error:", error.message);
     throw new Error("Videoni yuklab bo'lmadi. Havola noto'g'ri yoki fayl hajmi 100MB dan katta.");
   }
 }
@@ -49,36 +45,39 @@ async function downloadAudioWithTag(url, startTagPath) {
   const tempDir = path.join(__dirname, '../temp');
   if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-  const rawAudioPath = path.join(tempDir, `raw_audio_${Date.now()}.mp3`);
-  const finalAudioPath = path.join(tempDir, `final_audio_${Date.now()}.mp3`);
+  const uniqueId = Date.now();
+  const rawAudioOutput = path.join(tempDir, `raw_audio_${uniqueId}.%(ext)s`);
+  const finalAudioPath = path.join(tempDir, `final_audio_${uniqueId}.mp3`);
 
-  // 1. yt-dlp orqali audioni MP3 formatda tortib olish
-  const downloadCmd = `yt-dlp -x --audio-format mp3 --audio-quality 192K -o "${rawAudioPath.replace('.mp3', '.%(ext)s')}" "${url}"`;
+  // 1. yt-dlp orqali audioni tortib olish
+  const downloadCmd = `yt-dlp -x --audio-format mp3 --audio-quality 192K -o "${rawAudioOutput}" "${url}"`;
   
   try {
     await execPromise(downloadCmd);
     
-    // Topilgan raw audioni aniqlash
+    // Yuklangan raw audioni aniqlash
     const files = fs.readdirSync(tempDir);
-    const targetRaw = files.find(f => f.startsWith(`raw_audio_`) && f.endsWith('.mp3'));
+    const targetRaw = files.find(f => f.startsWith(`raw_audio_${uniqueId}`) && (f.endsWith('.mp3') || f.endsWith('.opus') || f.endsWith('.m4a')));
+    
+    if (!targetRaw) {
+      throw new Error("Audio fayl topilmadi.");
+    }
+
     const rawPath = path.join(tempDir, targetRaw);
 
-    // 2. FFmpeg orqali 10-soniyaga voicetag (3 soniyalik kanal reklamasi) qo'shish
-    // Bu yerda FFmpeg 'adelay' yoki 'amix' orqali 10-chi sekundda ovozni aralashtiradi
+    // 2. FFmpeg orqali 10-soniyaga voicetag qo'shish
     if (fs.existsSync(startTagPath)) {
-      // 10-chi sekundda (10000ms) voicetag ni qo'shish buyrug'i
       const ffmpegCmd = `ffmpeg -i "${rawPath}" -i "${startTagPath}" -filter_complex "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[a]" -map "[a]" -codec:a libmp3lame -b:a 192k "${finalAudioPath}"`;
       await execPromise(ffmpegCmd);
       
       if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
       return finalAudioPath;
     } else {
-      // Agar voicetag fayli topilmasa, shunchaki o'zini qaytaramiz
       return rawPath;
     }
 
   } catch (error) {
-    console.error("Audio download & tag error:", error);
+    console.error("Audio download & tag error:", error.message);
     throw new Error("Musiqani yuklab va tahrirlab bo'lmadi.");
   }
 }

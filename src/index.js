@@ -1,4 +1,4 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
@@ -7,13 +7,19 @@ const config = require('./config');
 const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
 const { setAutoReactions } = require('./services/telegram');
+const { downloadMedia, downloadAudioWithTag } = require('./services/downloader'); // Yangi yuklovchi servis
 
 const bot = new Telegraf(config.botToken);
 
-// Gemini AI ni to'g'ri sozlash (@google/genai uchun)
+// Gemini AI sozlamasi
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey || process.env.GEMINI_API_KEY });
 
 const pendingSessions = {};
+const urlCache = new Map(); // Takroriy yuklanishlarni oldini olish uchun kesh
+const userCooldown = new Map(); // Spam va timeout cheklovi uchun
+
+// Havola (URL) tekshirish uchun Regex
+const URL_REGEX = /(https?:\/\/(?:www\.)?(?:instagram\.com|youtube\.com|youtu\.be|tiktok\.com)\S+)/i;
 
 // Cover rasm yo'lini topish yordamchi funksiyasi
 function getCoverPath() {
@@ -34,7 +40,129 @@ function getCoverPath() {
 }
 
 // ==========================================
-// 1. GURUHDAGI XABARLAR UCHUN GEMINI AI MANTIQI
+// 1. REELS, SHORTS VA TIKTOK MEDIA YUKLOVCHI MANTIQ
+// ==========================================
+bot.on('message', async (ctx, next) => {
+  const msg = ctx.message;
+  if (!msg || !msg.text) return next();
+
+  const match = msg.text.match(URL_REGEX);
+
+  // Agar xabarda Instagram, YouTube yoki TikTok havolasi bo'lsa
+  if (match) {
+    const url = match[0];
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    // 1. Timeout / Rate-limit tekshiruvi (15 soniya ichida qayta yuborishni cheklash)
+    const lastRequest = userCooldown.get(userId);
+    if (lastRequest && Date.now() - lastRequest < 15000) {
+      const warnMsg = await ctx.reply("⚠️ Iltimos, keyingi havolani yuborishdan oldin 15 soniya kuting!");
+      setTimeout(() => ctx.telegram.deleteMessage(chatId, warnMsg.message_id).catch(() => {}), 5000);
+      await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
+      return;
+    }
+    userCooldown.set(userId, Date.now());
+
+    // 2. Foydalanuvchining asl havolasini chatdan o'chirish
+    await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
+
+    // 3. Inline tugmali vaqtinchalik xabar chiqarish
+    const menuMsg = await ctx.reply(
+      "🎬 **Media yuklash menyusi**\n\nQuyidagi tugmalardan birini tanlang:",
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("🎬 Videosini yuklash", `dl_video_${Date.now()}`),
+            Markup.button.callback("🎵 Musiqasini yuklash", `dl_audio_${Date.now()}`)
+          ]
+        ])
+      }
+    );
+
+    // Keshga havola ma'lumotlarini vaqtinchalik saqlaymiz
+    urlCache.set(`dl_video_${Date.now()}`, { url, chatId, menuMessageId: menuMsg.message_id, type: 'video' });
+    urlCache.set(`dl_audio_${Date.now()}`, { url, chatId, menuMessageId: menuMsg.message_id, type: 'audio' });
+
+    return; // Media havola bo'lgani uchun Gemini AI bo'limiga O'TMAYDI
+  }
+
+  return next();
+});
+
+// Inline tugmalar bosilganda ishlaydigan Callback Handler
+bot.action(/dl_(video|audio)_.+/, async (ctx) => {
+  const actionKey = ctx.match[0];
+  const item = urlCache.get(actionKey);
+
+  if (!item) {
+    await ctx.answerCbQuery("⚠️ So'rov vaqti o'tib ketgan yoki eskirgan.").catch(() => {});
+    await ctx.deleteMessage().catch(() => {});
+    return;
+  }
+
+  await ctx.answerCbQuery("⏳ Yuklab olish boshlandi...").catch(() => {});
+  const { url, chatId, menuMessageId, type } = item;
+
+  // Menyuni status xabariga o'zgartiramiz
+  await ctx.telegram.editMessageText(chatId, menuMessageId, undefined, "⏳ Media qayta ishlanmoqda, kuting...").catch(() => {});
+
+  try {
+    const captionText = `<b>@muzxs_bot</b> orqali yuklab olindi 🚀\n\n<i>💬 Botga savol berish uchun <b>@muzxs_bot</b> deb yozing, ChatGPT ishga tushadi!</i>\n\n📌 <i>Guruhlarda Instagram va YouTube'dan video yuklab beradi.</i>`;
+
+    const extraButtons = Markup.inlineKeyboard([
+      [Markup.button.url("📲 Do'stlarga ulashish", `https://t.me/share/url?url=https://t.me/muzxs_bot&text=Zo'r%20media%20yuklovchi%20bot!`)]
+    ]);
+
+    if (type === 'video') {
+      // Videoni yuklash va yuborish (1080p va 100MB limit bilan)
+      const videoPath = await downloadMedia(url, 'video');
+      await ctx.replyWithVideo(
+        { source: videoPath },
+        {
+          caption: captionText,
+          parse_mode: 'HTML',
+          ...extraButtons
+        }
+      );
+      if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+
+    } else if (type === 'audio') {
+      // Audioni brendlab, tag va muqova qo'shib yuklash
+      const coverPath = getCoverPath();
+      const startTagPath = path.join(__dirname, '../assets/voicetag_start.mp3');
+      
+      const audioPath = await downloadAudioWithTag(url, startTagPath);
+
+      await ctx.replyWithAudio(
+        { source: audioPath },
+        {
+          caption: captionText,
+          parse_mode: 'HTML',
+          title: "MuzXs Music",
+          performer: "-MuzXs",
+          ...(coverPath && { thumb: { source: coverPath } }),
+          ...extraButtons
+        }
+      );
+      if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+    }
+
+    // Ish yakunlangach, status/menyu xabarini butunlay o'chiramiz
+    await ctx.telegram.deleteMessage(chatId, menuMessageId).catch(() => {});
+
+  } catch (error) {
+    console.error("Downloader Error:", error);
+    await ctx.telegram.editMessageText(chatId, menuMessageId, undefined, "❌ Xatolik yuz berdi! Media hajmi juda katta yoki havola noto'g'ri.").catch(() => {});
+    setTimeout(() => ctx.telegram.deleteMessage(chatId, menuMessageId).catch(() => {}), 5000);
+  } finally {
+    urlCache.delete(actionKey);
+  }
+});
+
+// ==========================================
+// 2. GURUHDAGI XABARLAR UCHUN GEMINI AI MANTIQI
 // ==========================================
 bot.on('message', async (ctx, next) => {
   const msg = ctx.message;
@@ -42,30 +170,34 @@ bot.on('message', async (ctx, next) => {
 
   const chatType = msg.chat.type;
 
-  // Faqat guruh va superguruhlarda ishlashi uchun
   if (chatType === 'group' || chatType === 'supergroup') {
     try {
-      // Botning o'z xabariga javob bermasligi uchun
       if (msg.from && msg.from.is_bot) return;
 
-      const userMessage = msg.text;
+      const userMessage = msg.text.toLowerCase();
+      const botUsername = ctx.botInfo.username.toLowerCase();
 
-      // Gemini AI orqali javob generatsiya qilish (gemini-3.6-flash modeli)
+      // Gemini har bir xabarga javob bermaydi!
+      // Faqat botga murojaat qilinganda (reply) yoki kalit so'zlar bo'lganda ishlaydi
+      const isRepliedToBot = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === ctx.botInfo.id;
+      const isMentioned = userMessage.includes(`@${botUsername}`) || userMessage.startsWith('bot') || userMessage.startsWith('chatgpt') || userMessage.startsWith('gpt');
+
+      if (!isRepliedToBot && !isMentioned) return next();
+
       const response = await ai.models.generateContent({
         model: 'gemini-3.6-flash',
-        contents: userMessage,
+        contents: msg.text,
         config: {
-          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Sizning egangiz @muz_xs-Ruslan buni esingizdan chiqarmang, va hamma javob ohirida, aytib turing. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
+          systemInstruction: "Siz Telegram guruhidagi aqlli, do'stona va yordamchi sun'iy intellekt botisiz. Sizning egangiz @muz_xs-Ruslan buni esingizdan chiqarmang, va hamma javob oxirida aytib turing. Berilgan savollarga qisqa, tushunarli va o'zbek tilida javob bering."
         }
       });
 
       const aiReply = response.text;
 
-      // Guruhdagi xabarga reply tarzida yuborish
       await ctx.reply(aiReply, {
         reply_to_message_id: msg.message_id
       });
-      return; // Guruhda ishlasa, boshqa tekshiruvlarga o'tmasin
+      return;
     } catch (error) {
       console.error("Gemini AI xatoligi:", error);
     }
@@ -86,7 +218,7 @@ bot.start((ctx) => {});
 bot.help((ctx) => {});
 
 // ==========================================
-// 2. KANALDA MUSIQANI BOSHQARISH MANTIQI
+// 3. KANALDA MUSIQANI BOSHQARISH MANTIQI
 // ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
@@ -99,7 +231,6 @@ bot.on('channel_post', async (ctx) => {
     const text = post.text.trim();
     const userMessageId = post.message_id;
 
-    // 1. Title so'ralgandagi holat
     if (session.waitingForTitle) {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
@@ -121,7 +252,6 @@ bot.on('channel_post', async (ctx) => {
       return;
     }
 
-    // 2. Vaqt oralig'i yuborilgandagi holat
     if (session.waitingForTrimTime && text.includes(':')) {
       const parts = text.split(':');
       const startTime = parseInt(parts[0]);
@@ -202,7 +332,6 @@ bot.on('channel_post', async (ctx) => {
     }
   }
 
-  // Musiqa kelganda title so'rash
   if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
@@ -313,7 +442,7 @@ async function processAndSendFinalAudio(ctx, chatId, rawPath, customTitle, start
 }
 
 bot.launch().then(() => {
-  console.log("MuzXs Bot muvaffaqiyatli ishga tushdi va guruhlar uchun tayyor.");
+  console.log("MuzXs Bot muvaffaqiyatli ishga tushdi va tayyor.");
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));

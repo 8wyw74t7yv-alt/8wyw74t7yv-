@@ -81,6 +81,11 @@ bot.on('message', async (ctx, next) => {
     // 2. Foydalanuvchining asl havolasini chatdan o'chirish
     await ctx.telegram.deleteMessage(chatId, msg.message_id).catch(() => {});
 
+    // Bitta umumiy timestamp yaratamiz (ID moslashuvi uchun)
+    const timestamp = Date.now();
+    const videoActionKey = `dl_video_${timestamp}`;
+    const audioActionKey = `dl_audio_${timestamp}`;
+
     // 3. Inline tugmali menyu chiqarish
     const menuMsg = await ctx.reply(
       "🎬 **Media yuklash menyusi**\n\nQuyidagi tugmalardan birini tanlang:",
@@ -88,15 +93,15 @@ bot.on('message', async (ctx, next) => {
         parse_mode: 'Markdown',
         ...Markup.inlineKeyboard([
           [
-            Markup.button.callback("🎬 Videosini yuklash", `dl_video_${Date.now()}`),
-            Markup.button.callback("🎵 Musiqasini yuklash", `dl_audio_${Date.now()}`)
+            Markup.button.callback("🎬 Videosini yuklash", videoActionKey),
+            Markup.button.callback("🎵 Musiqasini yuklash", audioActionKey)
           ]
         ])
       }
     );
 
-    urlCache.set(`dl_video_${Date.now()}`, { url, chatId, menuMessageId: menuMsg.message_id, type: 'video' });
-    urlCache.set(`dl_audio_${Date.now()}`, { url, chatId, menuMessageId: menuMsg.message_id, type: 'audio' });
+    urlCache.set(videoActionKey, { url, chatId, menuMessageId: menuMsg.message_id, type: 'video' });
+    urlCache.set(audioActionKey, { url, chatId, menuMessageId: menuMsg.message_id, type: 'audio' });
     return; // Havola bo'lgani uchun boshqa tekshiruvlarga o'tmaydi
   }
 

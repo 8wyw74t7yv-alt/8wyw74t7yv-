@@ -18,6 +18,7 @@ RUN npm install --production
 RUN pip3 install --no-cache-dir --break-system-packages \
     google-genai \
     google-generativeai
+    yt-dlp
 
 # 5. Barcha loyiha fayllarini ko'chirish
 COPY . .

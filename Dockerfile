@@ -14,10 +14,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# 4. Python paketlarini o'rnatish (Gemini uchun)
+# 4. Python paketlarini o'rnatish (Gemini va yt-dlp uchun)
 RUN pip3 install --no-cache-dir --break-system-packages \
     google-genai \
-    google-generativeai
+    google-generativeai \
     yt-dlp
 
 # 5. Barcha loyiha fayllarini ko'chirish

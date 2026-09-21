@@ -40,6 +40,19 @@ function getCoverPath() {
 }
 
 // ==========================================
+// 0. INLINE TUGMA BOSILGANDA DARHOL JAVOB BERISH (Timeout oldini olish)
+// ==========================================
+bot.on('callback_query', async (ctx, next) => {
+  try {
+    // Telegramga so'rov kelganini darhol bildiramiz (60 soniyalik limit tugashining oldini oladi)
+    await ctx.answerCbQuery("⏳ Jarayon boshlandi, iltimos kuting...").catch(() => {});
+  } catch (error) {
+    console.error("Callback query error:", error);
+  }
+  return next();
+});
+
+// ==========================================
 // 1. REELS, SHORTS VA TIKTOK MEDIA YUKLOVCHI MANTIQ
 // ==========================================
 bot.on('message', async (ctx, next) => {
@@ -102,7 +115,6 @@ bot.action(/dl_(video|audio)_.+/, async (ctx) => {
     return;
   }
 
-  await ctx.answerCbQuery("⏳ Yuklab olish boshlandi...").catch(() => {});
   const { url, chatId, menuMessageId, type } = item;
 
   // Menyuni status xabariga o'zgartiramiz
@@ -177,8 +189,6 @@ bot.on('message', async (ctx, next) => {
       const userMessage = msg.text.toLowerCase();
       const botUsername = ctx.botInfo.username.toLowerCase();
 
-      // Gemini har bir xabarga javob bermaydi!
-      // Faqat botga murojaat qilinganda (reply) yoki kalit so'zlar bo'lganda ishlaydi
       const isRepliedToBot = msg.reply_to_message && msg.reply_to_message.from && msg.reply_to_message.from.id === ctx.botInfo.id;
       const isMentioned = userMessage.includes(`@${botUsername}`) || userMessage.startsWith('bot') || userMessage.startsWith('chatgpt') || userMessage.startsWith('gpt');
 
@@ -388,8 +398,6 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
     await ctx.deleteMessage().catch(() => {});
     return;
   }
-
-  await ctx.answerCbQuery().catch(() => {});
 
   if (action === 'no') {
     await ctx.deleteMessage().catch(() => {});

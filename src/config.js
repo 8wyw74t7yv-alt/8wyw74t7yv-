@@ -6,10 +6,10 @@ module.exports = {
   channelUsername: process.env.CHANNEL_USERNAME || "@muzxs",
   channelLink: process.env.CHANNEL_LINK || "https://t.me/muzxs",
   githubCoverUrl: process.env.GITHUB_COVER_URL || "",
-  auddApiKey: process.env.AUDD_API_KEY || "",
   
-  // Ruxsat berilgan reaksiyalar
-  reactions: ["🔥", "🖤", "🎧", "⚡️", "🤙"],
+  // Mini App va Webhook sozlamalari
+  webAppUrl: process.env.WEB_APP_URL || "https://your-domain.com",
+  port: process.env.PORT || 8080,
   
   // Shablondagi artist va standart nom
   defaultArtist: "-MuzXs",

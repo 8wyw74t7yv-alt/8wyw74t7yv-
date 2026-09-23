@@ -1,60 +1,226 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const ffmpeg = require('fluent-ffmpeg');
+const express = require('express');
 const config = require('./config');
-const { processAudioWithVoiceTag } = require('./services/audio');
+const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
-const { setAutoReactions } = require('./services/telegram');
 
 const bot = new Telegraf(config.botToken);
+const app = express();
 
-// XAVFSIZLIK: Barcha kiruvchi xabarlar uchun tekshiruv (Faqat ADMIN_ID uchun)
-bot.use(async (ctx, next) => {
-  const fromId = ctx.from ? ctx.from.id : null;
-  
-  // Kanal postlari (channel_post) bot o'zi ulangan kanallardan keladi
-  if (ctx.channelPost) {
-    return next();
-  }
+app.use(express.json());
+// Static fayllar va asosiy sahifa ulanishi
+app.use(express.static(path.join(__dirname, '../public')));
 
-  // Shaxsiy xabarlarda faqat belgilangan ID bilan ishlaydi
-  if (fromId === config.adminId) {
-    return next();
-  }
-
-  // Begonalarga hech qanday javob va belgi berilmaydi (To'liq yashirin)
-  return;
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// /start yoki boshqa buyruqlarda HECH NARSANi ko'rsatmaslik (Yashirin rejim)
-bot.start((ctx) => {});
-bot.help((ctx) => {});
+// Foydalanuvchilar va kanaldagi to'liq musiqalar bazasi
+const userDb = new Map();
+const channelTrackHistory = []; // Kanalga joylangan to'liq musiqalarning file_id lari saqlanadi
 
-// Kanalga musiqa joylanganda ushlab olish (channel_post)
+function getUser(userId) {
+  if (!userDb.has(userId)) {
+    userDb.set(userId, { referrals: new Set() });
+  }
+  return userDb.get(userId);
+}
+
+// BOTGA SHAXSIYDA YOZILGANDA JAVOB BERMASLIK (Referralni ushlash va musiqani yuborish)
+bot.use(async (ctx, next) => {
+  if (ctx.chat && ctx.chat.type === 'private') {
+    if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start')) {
+      const parts = ctx.message.text.split(' ');
+      if (parts.length > 1 && parts[1].startsWith('ref_')) {
+        const userId = ctx.from.id;
+        const referrerId = parseInt(parts[1].split('_')[1], 10);
+
+        if (referrerId && referrerId !== userId) {
+          const referrerData = getUser(referrerId);
+          referrerData.referrals.add(userId);
+
+          // Shart bajarildi! Do'stiga kanaldan tasodifiy to'liq musiqani yuboramiz
+          if (channelTrackHistory.length > 0) {
+            const randomIndex = Math.floor(Math.random() * channelTrackHistory.length);
+            const randomTrack = channelTrackHistory[randomIndex];
+
+            try {
+              await bot.telegram.sendAudio(referrerId, randomTrack.file_id, {
+                caption: `🎉 **SHART BAJARILDI!**\nDo'stingiz kirdi. Mana kanalingizdagi eksklyuziv to'liq musiqa:`,
+                parse_mode: 'Markdown'
+              });
+            } catch (err) {
+              console.error("Musiqa yuborishda xatolik:", err);
+            }
+          }
+        }
+      }
+    }
+    // Shaxsiy chatda bot HECH QANDAY tekstual javob bermaydi
+    return;
+  }
+  return next();
+});
+
+// API: Mini App uchun bot username
+app.get('/api/get-bot-info', (req, res) => {
+  res.json({ username: bot.botInfo ? bot.botInfo.username : process.env.BOT_USERNAME || '' });
+});
+
+const pendingSessions = {};
+
+const AUDIO_EFFECTS = [
+  { key: 'slowed', title: '🐌 Slowed (Musiqani biroz sekinlashtirish)', filter: 'atempo=0.92' },
+  { key: 'bassBoost', title: '🔊 Bass Boost (Gumburlash)', filter: 'equalizer=f=60:width_type=h:width=50:g=10' },
+  { key: 'noiseReduction', title: '🧹 Shovqinni tozalash (Noise Reduction)', filter: 'afftdn=nr=12:nf=-25' },
+  { key: 'ebuNormalization', title: '📊 Avtomatik EBU R128 (-14 LUFS balandlik tenglashtirish)', filter: 'loudnorm=I=-14:LRA=11:TP=-1.5' },
+  {
+    key: 'smoothFade',
+    title: '🎚 Smooth Fade-in & Fade-out (Yumshoq boshlanish va tugash)',
+    dynamicFilter: (duration) => {
+      const dur = duration || 180;
+      const fadeOutStart = Math.max(0, dur - 3);
+      return `afade=t=in:ss=0:d=2,afade=t=out:st=${fadeOutStart}:d=3`;
+    }
+  },
+  { key: 'voiceIsolator', title: '🎤 Voice Isolator (Faqat qo\'shiqchi ovozini qoldirish)', filter: 'pan=stereo|c0=c0-c1|c1=c0-c1' },
+  { key: 'eightD', title: '🎧 8D Audio (Ovozni chap va o\'ng quloqqa tebrantirish)', filter: 'apulsator=hz=0.125:amount=1' },
+  { key: 'reverbEcho', title: '🏛 Reverb & Echo (Konsert zali aks-sadosi)', filter: 'aecho=0.8:0.88:60:0.4' }
+];
+
+function getCoverPath() {
+  const possibleDirs = [
+    path.join(__dirname, '../assets'),
+    path.join(__dirname, '../../assets'),
+    path.join(process.cwd(), 'assets')
+  ];
+  const possibleFiles = ['photo.JPG', 'photo.jpg', 'cover.JPG', 'cover.jpg', 'cover.jpeg', 'cover.png'];
+  
+  for (const dir of possibleDirs) {
+    for (const fileName of possibleFiles) {
+      const filePath = path.join(dir, fileName);
+      if (fs.existsSync(filePath)) return filePath;
+    }
+  }
+  return null;
+}
+
+function getAudioDuration(inputPath) {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(inputPath, (err, metadata) => {
+      if (err || !metadata || !metadata.format || !metadata.format.duration) {
+        return resolve(0);
+      }
+      resolve(metadata.format.duration);
+    });
+  });
+}
+
+function applyCustomAudioEffects(inputPath, outputPath, selectedEffects, duration) {
+  return new Promise((resolve, reject) => {
+    let command = ffmpeg(inputPath);
+    const filters = [];
+
+    AUDIO_EFFECTS.forEach(eff => {
+      if (selectedEffects[eff.key]) {
+        if (eff.filter) {
+          filters.push(eff.filter);
+        } else if (eff.dynamicFilter) {
+          filters.push(eff.dynamicFilter(duration));
+        }
+      }
+    });
+
+    if (filters.length > 0) {
+      command.audioFilters(filters);
+    }
+
+    command
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(err))
+      .run();
+  });
+}
+
+bot.on('callback_query', async (ctx, next) => {
+  try {
+    await ctx.answerCbQuery().catch(() => {});
+  } catch (error) {}
+  return next();
+});
+
+// KANALDA MUSIQANI BOSHQARISH MANTIQI
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
+  if (!post) return;
 
-  // Agar post ichida audio bo'lsa
-  if (post && post.audio) {
-    const chatId = post.chat.id;
+  const chatId = post.chat.id;
+  const session = pendingSessions[chatId];
+
+  if (post.text && session) {
+    const text = post.text.trim();
+    const userMessageId = post.message_id;
+
+    if (session.step === 'waitingForTitle') {
+      await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
+
+      session.customTitle = `${text} 🎧`;
+      session.step = 'askTrim';
+
+      const textTrim = "🎵 **Musiqani kesamizmi?**";
+      const keyboardTrim = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("✂️ Kesamiz", `trim_yes_${chatId}`),
+          Markup.button.callback("⏩ Kesmaymiz", `trim_no_${chatId}`)
+        ]
+      ]);
+
+      await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, textTrim, {
+        parse_mode: 'Markdown',
+        ...keyboardTrim
+      }).catch(() => {});
+      return;
+    }
+
+    if (session.step === 'waitingForTrimTime' && text.includes(':')) {
+      const parts = text.split(':');
+      const startTime = parseInt(parts[0]);
+      const endTime = parseInt(parts[1]);
+
+      await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
+
+      if (isNaN(startTime) || isNaN(endTime) || startTime >= endTime) {
+        return;
+      }
+
+      session.trimStart = startTime;
+      session.trimDuration = endTime - startTime;
+      session.isTrimmed = true;
+
+      startEffectsWizard(ctx, chatId);
+      return;
+    }
+  }
+
+  if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
 
     const tempDir = path.join(__dirname, '../temp');
     const assetsDir = path.join(__dirname, '../assets');
 
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: });
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
     const rawPath = path.join(tempDir, `raw_${audio.file_id}.mp3`);
-    const taggedPath = path.join(tempDir, `tagged_${audio.file_id}.mp3`);
-    const finalPath = path.join(tempDir, `final_${audio.file_id}.mp3`);
-
     const startTagPath = path.join(assetsDir, 'voicetag_start.mp3');
     const endTagPath = path.join(assetsDir, 'voicetag_end.mp3');
 
     try {
-      // 1. Fayl havolasini olish va yuklab olish
       const fileLink = await ctx.telegram.getFileLink(audio.file_id);
       const response = await axios({ method: 'get', url: fileLink.href, responseType: 'stream' });
       const writer = fs.createWriteStream(rawPath);
@@ -66,45 +232,201 @@ bot.on('channel_post', async (ctx) => {
         writer.on('error', reject);
       });
 
-      // 2. Audio faylga Voice Taglarni ulash
-      await processAudioWithVoiceTag(rawPath, taggedPath, startTagPath, endTagPath);
+      await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
 
-      // 3. ID3 teglarni (-MuzXs, Title, Album Cover) yangilash va tozalash
-      const updatedTitle = await cleanAndInjectMetadata(taggedPath, audio.title || audio.file_name);
+      const promptMsg = await ctx.telegram.sendMessage(chatId, "✍️ **Musiqa uchun nom (title) yuboring:**", {
+        parse_mode: 'Markdown'
+      });
 
-      // 4. Asl xabarni kanaldan o'chirish
-      await ctx.telegram.deleteMessage(chatId, messageId);
-
-      // 5. Yangilangan va tahrirlangan musiqani kanalga yuborish
-      const sentMessage = await ctx.telegram.sendAudio(
-        chatId,
-        { source: taggedPath },
-        {
-          caption: config.captionTemplate,
-          parse_mode: 'HTML',
-          title: updatedTitle,
-          performer: config.defaultArtist
-        }
-      );
-
-      // 6. Avtomatik reaksiyalarni (🔥, 🖤, 🎧, ⚡️, 🤙) bosish
-      await setAutoReactions(ctx.telegram, chatId, sentMessage.message_id);
+      pendingSessions[chatId] = {
+        rawPath,
+        startTagPath,
+        endTagPath,
+        isTrimmed: false,
+        step: 'waitingForTitle',
+        promptMessageId: promptMsg.message_id,
+        selectedEffects: {},
+        currentEffectIndex: 0
+      };
 
     } catch (err) {
-      console.error("Processing Error:", err);
-    } finally {
-      // Vaqtinchalik fayllarni o'chirish (Server xotirasini tejash)
-      [rawPath, taggedPath, finalPath].forEach(p => {
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      });
+      console.error("Audio yuklab olish xatosi:", err);
     }
   }
 });
 
-bot.launch().then(() => {
-  console.log("MuzXs Bot muvaffaqiyatli ishga tushdi.");
+bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
+  const action = ctx.match[1];
+  const chatId = ctx.match[2];
+  const session = pendingSessions[chatId];
+
+  if (!session) return;
+
+  if (action === 'no') {
+    session.isTrimmed = false;
+    startEffectsWizard(ctx, chatId);
+  } else if (action === 'yes') {
+    session.isTrimmed = true;
+    session.step = 'waitingForTrimTime';
+    await ctx.editMessageText("⏱ **Musiqani kesish vaqtini yuboring (Masalan: `130:160`):**", {
+      parse_mode: 'Markdown'
+    }).catch(() => {});
+  }
 });
 
-// Resurslarni xavfsiz tozalash
+async function startEffectsWizard(ctx, chatId) {
+  const session = pendingSessions[chatId];
+  if (!session) return;
+
+  session.step = 'effects';
+  session.currentEffectIndex = 0;
+  await askNextEffect(ctx, chatId);
+}
+
+async function askNextEffect(ctx, chatId) {
+  const session = pendingSessions[chatId];
+  if (!session) return;
+
+  const index = session.currentEffectIndex;
+
+  if (index >= AUDIO_EFFECTS.length) {
+    await processAndSendFinalAudio(ctx, chatId);
+    return;
+  }
+
+  const effect = AUDIO_EFFECTS[index];
+  const text = `🎛 **Effekt qo'shamizmi?**\n\n📌 **${effect.title}**`;
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("✅ Ha", `fx_yes_${chatId}`),
+      Markup.button.callback("❌ Yo'q", `fx_no_${chatId}`)
+    ]
+  ]);
+
+  await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, text, {
+    parse_mode: 'Markdown',
+    ...keyboard
+  }).catch(() => {});
+}
+
+bot.action(/fx_(yes|no)_(.+)/, async (ctx) => {
+  const choice = ctx.match[1];
+  const chatId = ctx.match[2];
+  const session = pendingSessions[chatId];
+
+  if (!session) return;
+
+  const currentEffect = AUDIO_EFFECTS[session.currentEffectIndex];
+  session.selectedEffects[currentEffect.key] = (choice === 'yes');
+
+  session.currentEffectIndex += 1;
+  await askNextEffect(ctx, chatId);
+});
+
+async function processAndSendFinalAudio(ctx, chatId) {
+  const session = pendingSessions[chatId];
+  if (!session) return;
+
+  const tempDir = path.dirname(session.rawPath);
+
+  const chosenTitles = AUDIO_EFFECTS
+    .filter(eff => session.selectedEffects[eff.key])
+    .map(eff => eff.title.split(' ')[1] || eff.title);
+
+  const appliedFxText = chosenTitles.length > 0 
+    ? chosenTitles.join(', ')
+    : "Standart";
+
+  const loadingText = `⚡️ **Musiqa tayyorlanmoqda...**\n🎛 *Qo'shildi:* ${appliedFxText}`;
+  
+  await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, loadingText, {
+    parse_mode: 'Markdown'
+  }).catch(() => {});
+
+  try {
+    const duration = await getAudioDuration(session.rawPath);
+
+    let trimmedAudioPath = null;
+    if (session.isTrimmed) {
+      trimmedAudioPath = path.join(tempDir, `snippet_${Date.now()}.mp3`);
+      const tempTrimmed = path.join(tempDir, `raw_trim_${Date.now()}.mp3`);
+
+      await trimAudio(session.rawPath, tempTrimmed, session.trimStart, session.trimDuration);
+      await applyCustomAudioEffects(tempTrimmed, trimmedAudioPath, session.selectedEffects, session.trimDuration);
+      await cleanAndInjectMetadata(trimmedAudioPath, " ");
+
+      if (fs.existsSync(tempTrimmed)) fs.unlinkSync(tempTrimmed);
+    }
+
+    const processedFxPath = path.join(tempDir, `fx_${Date.now()}.mp3`);
+    const fullAudioPath = path.join(tempDir, `full_${Date.now()}.mp3`);
+
+    await applyCustomAudioEffects(session.rawPath, processedFxPath, session.selectedEffects, duration);
+    await processAudioWithVoiceTag(processedFxPath, fullAudioPath, session.startTagPath, session.endTagPath);
+    const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
+    const coverPath = getCoverPath();
+
+    await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
+
+    if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {
+      await ctx.telegram.sendAudio(
+        chatId,
+        { source: trimmedAudioPath },
+        { title: " ", performer: " " }
+      );
+      fs.unlinkSync(trimmedAudioPath);
+    }
+
+    // Inline tugma shakllantirish
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: "BARABANNI AYLANTIR VA YUT!🤩🎰",
+            web_app: { url: process.env.WEB_APP_URL || "https://your-domain.com" }
+          }
+        ]
+      ]
+    };
+
+    // To'liq musiqani kanalga inline tugma bilan yuborish
+    const sentAudio = await ctx.telegram.sendAudio(
+      chatId,
+      { source: fullAudioPath },
+      {
+        caption: config.captionTemplate,
+        parse_mode: 'HTML',
+        title: updatedTitle,
+        performer: config.defaultArtist,
+        ...(coverPath && { thumbnail: { source: coverPath } }),
+        reply_markup: inlineKeyboard
+      }
+    );
+
+    // Kanalga yuborilgan to'liq musiqaning file_id'sini ro'yxatga saqlaymiz
+    if (sentAudio && sentAudio.audio) {
+      channelTrackHistory.push({ file_id: sentAudio.audio.file_id });
+    }
+
+  } catch (err) {
+    console.error("Process Error:", err);
+    await ctx.telegram.sendMessage(chatId, "❌ Ishlov berishda xatolik yuz berdi!").catch(() => {});
+  } finally {
+    if (session.rawPath && fs.existsSync(session.rawPath)) fs.unlinkSync(session.rawPath);
+    delete pendingSessions[chatId];
+  }
+}
+
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`Server ${PORT}-portda ishga tushdi.`);
+  try {
+    await bot.launch();
+    console.log("MuzXs Bot va Express Mini App tayyor va ishlamoqda.");
+  } catch (err) {
+    console.error("Botni ishga tushirishda xatolik:", err);
+  }
+});
+
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

@@ -418,10 +418,14 @@ async function processAndSendFinalAudio(ctx, chatId) {
 }
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, async () => {
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server ${PORT}-portda ishga tushdi.`);
-  await bot.launch();
-  console.log("MuzXs Bot va Express Mini App tayyor va ishlamoqda.");
+  try {
+    await bot.launch();
+    console.log("MuzXs Bot va Express Mini App tayyor va ishlamoqda.");
+  } catch (err) {
+    console.error("Botni ishga tushirishda xatolik:", err);
+  }
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));

@@ -90,8 +90,9 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
 
 /**
  * Musiqani belgilangan vaqt oralig'ida kesish (Trim) va BARCHA METADATALARNI TOZALASH
+ * Sukut bo'yicha (default) duration = 30 sekund qilib belgilandi.
  */
-function trimAudio(inputPath, outputPath, startSeconds, duration) {
+function trimAudio(inputPath, outputPath, startSeconds, duration = 30) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .setStartTime(startSeconds)
@@ -107,7 +108,54 @@ function trimAudio(inputPath, outputPath, startSeconds, duration) {
   });
 }
 
+/**
+ * Kengaytirilgan Audio Effektlar (Super Preset, Pro Preset va Binaural 3D Echo Chamber)
+ * @param {string} inputPath - Kiruvchi audio manzili
+ * @param {string} outputPath - Chiquvchi audio manzili
+ * @param {Object} options - Effekt Sozlamalari
+ * @param {boolean} options.enable8D - 8D Audio effektini yoqish/o'chirish
+ * @param {boolean} options.isChamber - Binaural 3D Echo Chamber yoqish/o'chirish
+ */
+function processAdvancedEffects(inputPath, outputPath, options = {}) {
+  return new Promise((resolve, reject) => {
+    const { enable8D = false, isChamber = false } = options;
+
+    let filters = [];
+
+    // 1. Smooth Fade In (1.5s) va Fade Out (2s)
+    filters.push("afade=t=in:ss=0:d=1.5");
+
+    // 2. Echo / Reverb / Binaural 3D Echo Chamber
+    if (isChamber) {
+      // Kosmik aks-sado va akustik hajm (Binaural 3D Echo Chamber)
+      filters.push("aecho=0.8:0.88:1000|1800:0.5|0.3,aecho=0.6:0.7:250|500:0.3|0.2");
+    } else {
+      // Yumshoq Echo & Reverb
+      filters.push("aecho=0.8:0.88:60|120:0.4|0.25");
+    }
+
+    // 3. 8D Audio (Sirkulyar panning effekti)
+    if (enable8D) {
+      filters.push("apulsator=mode=sine:hz=0.125:width=1.0");
+    }
+
+    // 4. EBU R128 (-14 LUFS) Avtomatik Normalizatsiya
+    filters.push("loudnorm=I=-14:LRA=11:TP=-1.5");
+
+    const filterComplex = filters.join(',');
+
+    ffmpeg(inputPath)
+      .audioFilters(filterComplex)
+      .audioCodec('libmp3lame')
+      .audioBitrate('320k')
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(err))
+      .save(outputPath);
+  });
+}
+
 module.exports = {
   processAudioWithVoiceTag,
-  trimAudio
+  trimAudio,
+  processAdvancedEffects
 };

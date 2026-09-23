@@ -33,6 +33,7 @@ function getUser(userId) {
 // ==========================================
 // 1. NAVBAT TIZIMI (QUEUE SYSTEM)
 // ==========================================
+// Bir nechta musiqa tashlanganda ularni ketma-ketlikda xatolarsiz qayta ishlaydi
 const processingQueue = [];
 let isProcessingQueue = false;
 
@@ -115,7 +116,7 @@ function cleanTrackTitle(rawTitle) {
 }
 
 // ==========================================
-// 3. YANGA EFFEKTLAR VA BINAURAL 3D PRESETLAR
+// 3. EFFEKTLAR VA BINAURAL 3D PRESETLAR
 // ==========================================
 const AUDIO_EFFECTS = [
   { key: 'slowed', title: '🐌 Slowed', filter: 'atempo=0.92' },
@@ -200,7 +201,7 @@ bot.on('callback_query', async (ctx, next) => {
 });
 
 // ==========================================
-// 4. KANALDA MUSIQANI BOSHQARISH (MAIN INLINE MENU)
+// 4. KANALDA MUSIQANI BOSHQARISH (CHANNEL POST)
 // ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
@@ -209,20 +210,19 @@ bot.on('channel_post', async (ctx) => {
   const chatId = post.chat.id;
   const session = pendingSessions[chatId];
 
-  // Matnli buyruqlarni qabul qilish (Title / 30 Sekund vaqtini olish)
+  // Matnli buyruqlarni va vaqtni qabul qilish
   if (post.text && session) {
     const text = post.text.trim();
     const userMessageId = post.message_id;
 
     if (session.step === 'waitingForTitle') {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
-
       session.customTitle = `${cleanTrackTitle(text)} 🎧`;
       showMainMenu(ctx, chatId);
       return;
     }
 
-    // ⏱ 30 sekund uchun maxsus vaqt kiritish (Masalan: 1 30 yoki 1:30)
+    // ⏱ 30 sekund uchun kiritilgan vaqtni hisoblash (Masalan: 1 30 yoki 1:30)
     if (session.step === 'waitingForTrimTime30') {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
 
@@ -280,7 +280,6 @@ bot.on('channel_post', async (ctx) => {
 
       await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
 
-      // Avtomatik clean title tayyorlash
       const rawTitle = audio.title || audio.file_name || "Track";
       const cleanedTitle = `${cleanTrackTitle(rawTitle)} 🎧`;
 
@@ -311,7 +310,7 @@ bot.on('channel_post', async (ctx) => {
 });
 
 // ==========================================
-// 5. YAGONA O'ZGARMAS INLINE MENYU (CHIPKETMAYDI)
+// 5. YAGONA O'ZGARMAS INLINE MENYU (OCHIB KETMAYDI)
 // ==========================================
 async function showMainMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
@@ -340,7 +339,7 @@ async function showMainMenu(ctx, chatId) {
   }).catch(() => {});
 }
 
-// Inline tugmalar bosilganda ishlaydigan logika
+// ⏱ 30 sekund tugmasi bosilganda
 bot.action(/menu_trim30_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
@@ -521,7 +520,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
     const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
     const coverPath = getCoverPath();
 
-    // Ish bajarilgach, menyu xabarini to'liq chatdan o'chiramiz!
+    // Hamma ish yakunlangach, inline menyuni o'chiramiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
     if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {
@@ -533,7 +532,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
       fs.unlinkSync(trimmedAudioPath);
     }
 
-    // Inline tugma shakllantirish - Telegram standarti bo'yicha yaroqli URL va ob'ekt
     const webAppUrl = process.env.WEB_APP_URL && process.env.WEB_APP_URL.startsWith('http') 
       ? process.env.WEB_APP_URL 
       : 'https://t.me/muzxs';
@@ -542,7 +540,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
       [Markup.button.url("BARABANNI AYLANTIR VA YUT!🤩🎰", webAppUrl)]
     ]);
 
-    // To'liq musiqani kanalga inline tugma bilan yuborish
+    // To'liq musiqani kanalga yuborish
     const sentAudio = await ctx.telegram.sendAudio(
       chatId,
       { source: fullAudioPath },

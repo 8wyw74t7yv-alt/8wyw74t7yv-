@@ -7,6 +7,10 @@ module.exports = {
   channelLink: process.env.CHANNEL_LINK || "https://t.me/muzxs",
   githubCoverUrl: process.env.GITHUB_COVER_URL || "",
   
+  // Mini App va Webhook sozlamalari
+  webAppUrl: process.env.WEB_APP_URL || "https://your-domain.com",
+  port: process.env.PORT || 8080,
+  
   // Shablondagi artist va standart nom
   defaultArtist: "-MuzXs",
   fallbackTitle: "MuzXs🎧",

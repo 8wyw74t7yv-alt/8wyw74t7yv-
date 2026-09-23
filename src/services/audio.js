@@ -112,40 +112,66 @@ function trimAudio(inputPath, outputPath, startSeconds, duration = 30) {
  * Kengaytirilgan Audio Effektlar (Super Preset, Pro Preset va Binaural 3D Echo Chamber)
  * @param {string} inputPath - Kiruvchi audio manzili
  * @param {string} outputPath - Chiquvchi audio manzili
- * @param {Object} options - Effekt Sozlamalari
- * @param {boolean} options.enable8D - 8D Audio effektini yoqish/o'chirish
- * @param {boolean} options.isChamber - Binaural 3D Echo Chamber yoqish/o'chirish
+ * @param {Object} selectedEffects - Tanlangan effektlar obyekti
+ * @param {number} duration - Audio davomiyligi (soniyada)
  */
-function processAdvancedEffects(inputPath, outputPath, options = {}) {
+function processAdvancedEffects(inputPath, outputPath, selectedEffects = {}, duration = 180) {
   return new Promise((resolve, reject) => {
-    const { enable8D = false, isChamber = false } = options;
-
     let filters = [];
 
-    // 1. Smooth Fade In (1.5s) va Fade Out (2s)
-    filters.push("afade=t=in:ss=0:d=1.5");
+    // 1. Smooth Fade In & Out
+    if (selectedEffects.smoothFade !== false) {
+      const fadeOutStart = Math.max(0, duration - 3);
+      filters.push(`afade=t=in:ss=0:d=2,afade=t=out:st=${fadeOutStart}:d=3`);
+    }
 
-    // 2. Echo / Reverb / Binaural 3D Echo Chamber
-    if (isChamber) {
-      // Kosmik aks-sado va akustik hajm (Binaural 3D Echo Chamber)
-      filters.push("aecho=0.8:0.88:1000|1800:0.5|0.3,aecho=0.6:0.7:250|500:0.3|0.2");
-    } else {
-      // Yumshoq Echo & Reverb
+    // 2. Reverb & Echo
+    if (selectedEffects.reverbEcho) {
       filters.push("aecho=0.8:0.88:60|120:0.4|0.25");
     }
 
-    // 3. 8D Audio (Sirkulyar panning effekti)
-    if (enable8D) {
-      filters.push("apulsator=mode=sine:hz=0.125:width=1.0");
+    // 3. Binaural 3D Echo Chamber (Kosmik aks-sado va akustik hajm)
+    if (selectedEffects.binaural3d) {
+      filters.push("aecho=0.8:0.9:1000|1800:0.3|0.25,apulsator=hz=0.08:amount=0.9");
     }
 
-    // 4. EBU R128 (-14 LUFS) Avtomatik Normalizatsiya
-    filters.push("loudnorm=I=-14:LRA=11:TP=-1.5");
+    // 4. 8D Audio
+    if (selectedEffects.eightD) {
+      filters.push("apulsator=hz=0.125:amount=1");
+    }
 
-    const filterComplex = filters.join(',');
+    // 5. Bass Boost
+    if (selectedEffects.bassBoost) {
+      filters.push("equalizer=f=60:width_type=h:width=50:g=10");
+    }
 
-    ffmpeg(inputPath)
-      .audioFilters(filterComplex)
+    // 6. Slowed
+    if (selectedEffects.slowed) {
+      filters.push("atempo=0.92");
+    }
+
+    // 7. Noise Reduction
+    if (selectedEffects.noiseReduction) {
+      filters.push("afftdn=nr=12:nf=-25");
+    }
+
+    // 8. Voice Isolator
+    if (selectedEffects.voiceIsolator) {
+      filters.push("pan=stereo|c0=c0-c1|c1=c0-c1");
+    }
+
+    // 9. EBU R128 (-14 LUFS) Avtomatik Normalizatsiya
+    if (selectedEffects.ebuNormalization !== false) {
+      filters.push("loudnorm=I=-14:LRA=11:TP=-1.5");
+    }
+
+    let command = ffmpeg(inputPath);
+
+    if (filters.length > 0) {
+      command.audioFilters(filters.join(','));
+    }
+
+    command
       .audioCodec('libmp3lame')
       .audioBitrate('320k')
       .on('end', () => resolve(outputPath))

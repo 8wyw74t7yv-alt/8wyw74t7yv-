@@ -6,7 +6,6 @@ const ffmpeg = require('fluent-ffmpeg');
 const config = require('./config');
 const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
-const { setAutoReactions } = require('./services/telegram');
 
 const bot = new Telegraf(config.botToken);
 
@@ -381,8 +380,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
         ...(coverPath && { thumb: { source: coverPath } })
       }
     );
-
-    await setAutoReactions(ctx.telegram, chatId, sentMessage.message_id);
 
     const notifyMsg = await ctx.telegram.sendMessage(chatId, `🎧 ${config.channelUsername} kanaliga tahrirlab joyladim ✅`);
     setTimeout(async () => {

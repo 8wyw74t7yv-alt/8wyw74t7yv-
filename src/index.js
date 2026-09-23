@@ -33,7 +33,6 @@ function getUser(userId) {
 // ==========================================
 // 1. NAVBAT TIZIMI (QUEUE SYSTEM)
 // ==========================================
-// Bir nechta musiqa tashlanganda ularni ketma-ketlikda xatolarsiz qayta ishlaydi
 const processingQueue = [];
 let isProcessingQueue = false;
 
@@ -215,6 +214,7 @@ bot.on('channel_post', async (ctx) => {
     const text = post.text.trim();
     const userMessageId = post.message_id;
 
+    // Musiqa nomini kiritish bosqichi
     if (session.step === 'waitingForTitle') {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       session.customTitle = `${cleanTrackTitle(text)} 🎧`;
@@ -222,7 +222,7 @@ bot.on('channel_post', async (ctx) => {
       return;
     }
 
-    // ⏱ 30 sekund uchun kiritilgan vaqtni hisoblash (Masalan: 1 30 yoki 1:30)
+    // ⏱ 30 sekund uchun kiritilgan vaqtni hisoblash
     if (session.step === 'waitingForTrimTime30') {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
 
@@ -244,7 +244,7 @@ bot.on('channel_post', async (ctx) => {
       const calculatedStart = (minutes * 60) + seconds;
 
       session.trimStart = calculatedStart;
-      session.trimDuration = 30; // Avtomatik 30 soniya
+      session.trimDuration = 30;
       session.isTrimmed = true;
 
       showMainMenu(ctx, chatId);
@@ -283,9 +283,10 @@ bot.on('channel_post', async (ctx) => {
       const rawTitle = audio.title || audio.file_name || "Track";
       const cleanedTitle = `${cleanTrackTitle(rawTitle)} 🎧`;
 
-      const promptMsg = await ctx.telegram.sendMessage(chatId, "✍️ **Musiqa qabul qilindi. Boshqaruv menyusi yuklanmoqda...**", {
-        parse_mode: 'Markdown'
-      });
+      const promptMsg = await ctx.telegram.sendMessage(chatId, 
+        `✍️ **Musiqa qabul qilindi!**\n\nIltimos, ushbu musiqa uchun **nom (title)** yuboring (masalan: *Artist - Track Name*):`, 
+        { parse_mode: 'Markdown' }
+      );
 
       pendingSessions[chatId] = {
         rawPath,
@@ -295,13 +296,11 @@ bot.on('channel_post', async (ctx) => {
         isTrimmed: false,
         trimStart: 0,
         trimDuration: 30,
-        step: 'mainMenu',
+        step: 'waitingForTitle', // Avval nomini so'rashga o'tadi
         promptMessageId: promptMsg.message_id,
         selectedEffects: {},
         currentEffectIndex: 0
       };
-
-      showMainMenu(ctx, chatId);
 
     } catch (err) {
       console.error("Audio yuklab olish xatosi:", err);
@@ -310,7 +309,7 @@ bot.on('channel_post', async (ctx) => {
 });
 
 // ==========================================
-// 5. YAGONA O'ZGARMAS INLINE MENYU (OCHIB KETMAYDI)
+// 5. YAGONA O'ZGARMAS INLINE MENYU
 // ==========================================
 async function showMainMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
@@ -322,14 +321,11 @@ async function showMainMenu(ctx, chatId) {
   const text = `🎧 **MUSIQA BOSHQARUV PANELI**\n\n` +
                `🎵 **Nomi:** ${session.customTitle}\n` +
                `⏱ **30s Kesish:** ${trimStatus}\n\n` +
-               `Kerakli amalni yoki tayyor presetni tanlang:`;
+               `Kerakli amalni tanlang:`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback("⏱ 30 sekund (Kesish)", `menu_trim30_${chatId}`)],
-    [Markup.button.callback("🔥 Barcha effektlar (8D bilan)", `preset_all_8d_${chatId}`)],
-    [Markup.button.callback("✨ Barcha effektlar (8D siz)", `preset_all_no8d_${chatId}`)],
-    [Markup.button.callback("🌌 Binaural 3D Echo Chamber", `preset_binaural_${chatId}`)],
-    [Markup.button.callback("🎛 O'zim tanlayman", `menu_custom_fx_${chatId}`)],
+    [Markup.button.callback("🎛 Effektlarni birma-bir tanlash", `menu_custom_fx_${chatId}`)],
     [Markup.button.callback("🚀 TAYYOR (Kanalga Joylash)", `process_final_${chatId}`)]
   ]);
 
@@ -363,54 +359,7 @@ bot.action(/menu_back_(.+)/, async (ctx) => {
   showMainMenu(ctx, chatId);
 });
 
-// PRESET 1: 🔥 Barcha effektlar (8D bilan)
-bot.action(/preset_all_8d_(.+)/, async (ctx) => {
-  const chatId = ctx.match[1];
-  const session = pendingSessions[chatId];
-  if (!session) return;
-
-  session.selectedEffects = {
-    reverbEcho: true,
-    eightD: true,
-    smoothFade: true,
-    ebuNormalization: true
-  };
-
-  addToQueue(() => processAndSendFinalAudio(ctx, chatId));
-});
-
-// PRESET 2: ✨ Barcha effektlar (8D siz)
-bot.action(/preset_all_no8d_(.+)/, async (ctx) => {
-  const chatId = ctx.match[1];
-  const session = pendingSessions[chatId];
-  if (!session) return;
-
-  session.selectedEffects = {
-    reverbEcho: true,
-    eightD: false,
-    smoothFade: true,
-    ebuNormalization: true
-  };
-
-  addToQueue(() => processAndSendFinalAudio(ctx, chatId));
-});
-
-// PRESET 3: 🌌 Binaural 3D Echo Chamber
-bot.action(/preset_binaural_(.+)/, async (ctx) => {
-  const chatId = ctx.match[1];
-  const session = pendingSessions[chatId];
-  if (!session) return;
-
-  session.selectedEffects = {
-    binaural3d: true,
-    smoothFade: true,
-    ebuNormalization: true
-  };
-
-  addToQueue(() => processAndSendFinalAudio(ctx, chatId));
-});
-
-// O'ZIM TANLAYMAN MENYUSI
+// EFFEKTLARNI BIRMA-BIR TANLASH VIZARDI
 bot.action(/menu_custom_fx_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
@@ -439,6 +388,7 @@ async function askNextEffect(ctx, chatId) {
 
   const index = session.currentEffectIndex;
 
+  // Barcha effektlar ko'rib chiqilgan bo'lsa, asosiy menyuga qaytamiz
   if (index >= AUDIO_EFFECTS.length) {
     showMainMenu(ctx, chatId);
     return;
@@ -494,7 +444,8 @@ async function processAndSendFinalAudio(ctx, chatId) {
   const loadingText = `⚡️ **Musiqa navbatda va qayta ishlanmoqda...**\n🎛 *Qo'shilgan effektlar:* ${appliedFxText}`;
   
   await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, loadingText, {
-    parse_mode: 'Markdown'
+    parse_mode: 'Markdown',
+    ...loadingText // eslint-disable-line
   }).catch(() => {});
 
   try {
@@ -532,15 +483,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
       fs.unlinkSync(trimmedAudioPath);
     }
 
-    const webAppUrl = process.env.WEB_APP_URL && process.env.WEB_APP_URL.startsWith('http') 
-      ? process.env.WEB_APP_URL 
-      : 'https://t.me/muzxs';
-
-    const inlineKeyboard = Markup.inlineKeyboard([
-      [Markup.button.url("BARABANNI AYLANTIR VA YUT!🤩🎰", webAppUrl)]
-    ]);
-
-    // To'liq musiqani kanalga yuborish
+    // "BARABANNI AYLANTIR" inline tugmasi olib tashlandi (reply_markup olib tashlandi)
     const sentAudio = await ctx.telegram.sendAudio(
       chatId,
       { source: fullAudioPath },
@@ -549,8 +492,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
         parse_mode: 'HTML',
         title: updatedTitle,
         performer: config.defaultArtist,
-        ...(coverPath && { thumbnail: { source: coverPath } }),
-        reply_markup: inlineKeyboard.reply_markup
+        ...(coverPath && { thumbnail: { source: coverPath } })
       }
     );
 

@@ -12,7 +12,7 @@ const bot = new Telegraf(config.botToken);
 // Kanal postlari uchun aktiv seanslar
 const pendingSessions = {};
 
-// So'raladigan effektlar ro'yxati (Slowed va Reverb/Echo alohida qilindi)
+// So'raladigan effektlar ro'yxati (Slowed va Reverb/Echo alohida)
 const AUDIO_EFFECTS = [
   {
     key: 'slowed',
@@ -150,7 +150,6 @@ bot.on('channel_post', async (ctx) => {
       session.customTitle = `${text} 🎧`;
       session.step = 'askTrim';
 
-      // Xabarni yangilaymiz (yangi xabar ochilmaydi)
       const textTrim = "🎵 **Musiqani kesamizmi?**";
       const keyboardTrim = Markup.inlineKeyboard([
         [
@@ -178,20 +177,11 @@ bot.on('channel_post', async (ctx) => {
         return;
       }
 
-      const duration = endTime - startTime;
-      const tempDir = path.join(__dirname, '../temp');
-      const trimmedPath = path.join(tempDir, `trimmed_${Date.now()}.mp3`);
+      session.trimStart = startTime;
+      session.trimDuration = endTime - startTime;
+      session.isTrimmed = true;
 
-      try {
-        await trimAudio(session.rawPath, trimmedPath, startTime, duration);
-        if (fs.existsSync(session.rawPath)) fs.unlinkSync(session.rawPath);
-        session.rawPath = trimmedPath;
-        session.isTrimmed = true; // Bu kesilgan musiqa ekanini belgilaymiz
-
-        startEffectsWizard(ctx, chatId);
-      } catch (err) {
-        console.error("Trim Error:", err);
-      }
+      startEffectsWizard(ctx, chatId);
       return;
     }
   }
@@ -222,7 +212,7 @@ bot.on('channel_post', async (ctx) => {
         writer.on('error', reject);
       });
 
-      // Asl yuborilgan audio xabarni o'chiramiz
+      // Asl yuborilgan audio xabarni darhol o'chiramiz
       await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
 
       // Yagona boshqaruv xabarini yaratamiz
@@ -234,7 +224,7 @@ bot.on('channel_post', async (ctx) => {
         rawPath,
         startTagPath,
         endTagPath,
-        isTrimmed: false, // Dastlab to'liq deb belgilanadi
+        isTrimmed: false,
         step: 'waitingForTitle',
         promptMessageId: promptMsg.message_id,
         selectedEffects: {},
@@ -321,15 +311,13 @@ bot.action(/fx_(yes|no)_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// YAKUNIY PROCESS
+// YAKUNIY PROCESS (Kesilgan va To'liq musiqani yuborish)
 // ==========================================
 async function processAndSendFinalAudio(ctx, chatId) {
   const session = pendingSessions[chatId];
   if (!session) return;
 
   const tempDir = path.dirname(session.rawPath);
-  const processedFxPath = path.join(tempDir, `fx_${Date.now()}.mp3`);
-  const finalAudioPath = path.join(tempDir, `final_${Date.now()}.mp3`);
 
   // Tanlangan effektlar ro'yxatini shakllantirish
   const chosenTitles = AUDIO_EFFECTS
@@ -340,7 +328,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
     ? chosenTitles.join(', ')
     : "Standart";
 
-  // Qisqa va emojili yuklanish xabari
   const loadingText = `⚡️ **Musiqa tayyorlanmoqda...**\n🎛 *Qo'shildi:* ${appliedFxText}`;
   
   await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, loadingText, {
@@ -350,47 +337,60 @@ async function processAndSendFinalAudio(ctx, chatId) {
   try {
     const duration = await getAudioDuration(session.rawPath);
 
-    // 1. Tanlangan effektlarni berish
-    await applyCustomAudioEffects(session.rawPath, processedFxPath, session.selectedEffects, duration);
-
-    // 2. Voice tag faqat TO'LIQ (kesilmagan) musiqaga qo'shiladi
-    if (!session.isTrimmed) {
-      await processAudioWithVoiceTag(processedFxPath, finalAudioPath, session.startTagPath, session.endTagPath);
-    } else {
-      // Kesilgan musiqaga voice tag kerak emas, shunchaki nusxalaymiz
-      fs.copyFileSync(processedFxPath, finalAudioPath);
-    }
-
-    // 3. Metadata va to'liq ma'lumotlarni sozlash
-    let updatedTitle = session.customTitle;
-    let coverPath = null;
-    let caption = config.captionTemplate;
-    let performer = config.defaultArtist;
-
+    // 1. Agar kesilgan (snippet) kerak bo'lsa
+    let trimmedAudioPath = null;
     if (session.isTrimmed) {
-      // Kesilgan musiqa uchun: barcha metadatalar bo'sh (bo'sh joy), cover va caption yo'q
-      await cleanAndInjectMetadata(finalAudioPath, " ");
-      updatedTitle = " ";
-      performer = " ";
-      caption = undefined;
-      coverPath = null;
-    } else {
-      // To'liq musiqa uchun: barcha ma'lumotlar va cover o'z joyida
-      updatedTitle = await cleanAndInjectMetadata(finalAudioPath, session.customTitle);
-      coverPath = getCoverPath();
+      trimmedAudioPath = path.join(tempDir, `snippet_${Date.now()}.mp3`);
+      const tempTrimmed = path.join(tempDir, `raw_trim_${Date.now()}.mp3`);
+
+      // Avval kesib olamiz
+      await trimAudio(session.rawPath, tempTrimmed, session.trimStart, session.trimDuration);
+      // Effektlarni beramiz (Voice tag qo'shilmaydi!)
+      await applyCustomAudioEffects(tempTrimmed, trimmedAudioPath, session.selectedEffects, session.trimDuration);
+      
+      // Metadatalarini bo'shatamiz
+      await cleanAndInjectMetadata(trimmedAudioPath, " ");
+
+      if (fs.existsSync(tempTrimmed)) fs.unlinkSync(tempTrimmed);
     }
 
-    // 4. Boshqaruv so'rovnoma xabarini kanal chatidan sezdirilmasdan o'chirish
+    // 2. To'liq musiqa uchun jarayon
+    const processedFxPath = path.join(tempDir, `fx_${Date.now()}.mp3`);
+    const fullAudioPath = path.join(tempDir, `full_${Date.now()}.mp3`);
+
+    // Effektlarni beramiz
+    await applyCustomAudioEffects(session.rawPath, processedFxPath, session.selectedEffects, duration);
+    // Voice tag qo'shamiz
+    await processAudioWithVoiceTag(processedFxPath, fullAudioPath, session.startTagPath, session.endTagPath);
+    // Metadata va title qo'shamiz
+    const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
+    const coverPath = getCoverPath();
+
+    // 3. Boshqaruv so'rovnoma xabarini o'chiramiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
-    // 5. Tayyor musiqani kanalga yuborish
+    // 4. A) Agar kesilgan (snippet) bo'lsa, avval uni yuboramiz (faqat audio, metadata bo'sh, rasm va caption yo'q)
+    if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {
+      await ctx.telegram.sendAudio(
+        chatId,
+        { source: trimmedAudioPath },
+        {
+          title: " ",
+          performer: " "
+        }
+      );
+      fs.unlinkSync(trimmedAudioPath);
+    }
+
+    // 4. B) Ketidan to'liq musiqani yuboramiz (caption, cover va voice taglar bilan)
     await ctx.telegram.sendAudio(
       chatId,
-      { source: finalAudioPath },
+      { source: fullAudioPath },
       {
-        ...(caption && { caption, parse_mode: 'HTML' }),
+        caption: config.captionTemplate,
+        parse_mode: 'HTML',
         title: updatedTitle,
-        performer: performer,
+        performer: config.defaultArtist,
         ...(coverPath && { thumb: { source: coverPath } })
       }
     );
@@ -399,9 +399,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
     console.error("Process Error:", err);
     await ctx.telegram.sendMessage(chatId, "❌ Ishlov berishda xatolik yuz berdi!").catch(() => {});
   } finally {
-    [session.rawPath, processedFxPath, finalAudioPath].forEach(p => {
-      if (p && fs.existsSync(p)) fs.unlinkSync(p);
-    });
+    if (session.rawPath && fs.existsSync(session.rawPath)) fs.unlinkSync(session.rawPath);
     delete pendingSessions[chatId];
   }
 }

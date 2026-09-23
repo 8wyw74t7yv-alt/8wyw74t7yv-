@@ -7,7 +7,7 @@ yarn-error.log*
 # Maxfiy muhit fayllari
 .env
 
-# Vaqtinchalik fayllar va papkalar (agar bot ish jarayonida musiqalarni vaqtincha saqlasa)
+# Vaqtinchalik fayllar va papkalar (bot ish jarayonida musiqalarni vaqtincha saqlashi uchun)
 temp/
 downloads/
 *.mp3

@@ -1,16 +1,7 @@
-const config = require('../config');
-
-// Telegram xabariga avtomatik reaksiyalar bosish
+// Telegram xabariga avtomatik reaksiya bosish funksiyasi (Hozirda nofaol)
 async function setAutoReactions(telegram, chatId, messageId) {
-  try {
-    await telegram.callApi('setMessageReaction', {
-      chat_id: chatId,
-      message_id: messageId,
-      reaction: config.reactions.map(emoji => ({ type: 'emoji', emoji }))
-    });
-  } catch (err) {
-    console.error("Auto Reaction Error:", err.message);
-  }
+  // Reaksiyalar olib tashlangani uchun funksiya bo'sh qoldirildi
+  return true;
 }
 
 module.exports = { setAutoReactions };

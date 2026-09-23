@@ -533,17 +533,14 @@ async function processAndSendFinalAudio(ctx, chatId) {
       fs.unlinkSync(trimmedAudioPath);
     }
 
-    // Inline tugma shakllantirish
-    const inlineKeyboard = {
-      inline_keyboard: [
-        [
-          {
-            text: "BARABANNI AYLANTIR VA YUT!🤩🎰",
-            web_app: { url: process.env.WEB_APP_URL || "https://your-domain.com" }
-          }
-        ]
-      ]
-    };
+    // Inline tugma shakllantirish - Telegram standarti bo'yicha yaroqli URL va ob'ekt
+    const webAppUrl = process.env.WEB_APP_URL && process.env.WEB_APP_URL.startsWith('http') 
+      ? process.env.WEB_APP_URL 
+      : 'https://t.me/muzxs';
+
+    const inlineKeyboard = Markup.inlineKeyboard([
+      [Markup.button.url("BARABANNI AYLANTIR VA YUT!🤩🎰", webAppUrl)]
+    ]);
 
     // To'liq musiqani kanalga inline tugma bilan yuborish
     const sentAudio = await ctx.telegram.sendAudio(
@@ -555,7 +552,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
         title: updatedTitle,
         performer: config.defaultArtist,
         ...(coverPath && { thumbnail: { source: coverPath } }),
-        reply_markup: inlineKeyboard
+        reply_markup: inlineKeyboard.reply_markup
       }
     );
 

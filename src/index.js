@@ -68,7 +68,7 @@ bot.use(async (ctx, next) => {
 
 // API: Mini App uchun bot username
 app.get('/api/get-bot-info', (req, res) => {
-  res.json({ username: bot.botInfo ? bot.botInfo.username : '' });
+  res.json({ username: bot.botInfo ? bot.botInfo.username : process.env.BOT_USERNAME || '' });
 });
 
 const pendingSessions = {};
@@ -398,7 +398,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
         parse_mode: 'HTML',
         title: updatedTitle,
         performer: config.defaultArtist,
-        ...(coverPath && { thumb: { source: coverPath } }),
+        ...(coverPath && { thumbnail: { source: coverPath } }),
         reply_markup: inlineKeyboard
       }
     );

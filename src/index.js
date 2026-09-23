@@ -186,6 +186,7 @@ bot.on('channel_post', async (ctx) => {
         await trimAudio(session.rawPath, trimmedPath, startTime, duration);
         if (fs.existsSync(session.rawPath)) fs.unlinkSync(session.rawPath);
         session.rawPath = trimmedPath;
+        session.isTrimmed = true; // Bu kesilgan musiqa ekanini belgilaymiz
 
         startEffectsWizard(ctx, chatId);
       } catch (err) {
@@ -233,6 +234,7 @@ bot.on('channel_post', async (ctx) => {
         rawPath,
         startTagPath,
         endTagPath,
+        isTrimmed: false, // Dastlab to'liq deb belgilanadi
         step: 'waitingForTitle',
         promptMessageId: promptMsg.message_id,
         selectedEffects: {},
@@ -254,8 +256,10 @@ bot.action(/trim_(yes|no)_(.+)/, async (ctx) => {
   if (!session) return;
 
   if (action === 'no') {
+    session.isTrimmed = false;
     startEffectsWizard(ctx, chatId);
   } else if (action === 'yes') {
+    session.isTrimmed = true;
     session.step = 'waitingForTrimTime';
     await ctx.editMessageText("⏱ **Musiqani kesish vaqtini yuboring (Masalan: `130:160`):**", {
       parse_mode: 'Markdown'
@@ -325,7 +329,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
 
   const tempDir = path.dirname(session.rawPath);
   const processedFxPath = path.join(tempDir, `fx_${Date.now()}.mp3`);
-  const taggedPath = path.join(tempDir, `tagged_${Date.now()}.mp3`);
+  const finalAudioPath = path.join(tempDir, `final_${Date.now()}.mp3`);
 
   // Tanlangan effektlar ro'yxatini shakllantirish
   const chosenTitles = AUDIO_EFFECTS
@@ -349,12 +353,32 @@ async function processAndSendFinalAudio(ctx, chatId) {
     // 1. Tanlangan effektlarni berish
     await applyCustomAudioEffects(session.rawPath, processedFxPath, session.selectedEffects, duration);
 
-    // 2. Voice tag qo'shish
-    await processAudioWithVoiceTag(processedFxPath, taggedPath, session.startTagPath, session.endTagPath);
+    // 2. Voice tag faqat TO'LIQ (kesilmagan) musiqaga qo'shiladi
+    if (!session.isTrimmed) {
+      await processAudioWithVoiceTag(processedFxPath, finalAudioPath, session.startTagPath, session.endTagPath);
+    } else {
+      // Kesilgan musiqaga voice tag kerak emas, shunchaki nusxalaymiz
+      fs.copyFileSync(processedFxPath, finalAudioPath);
+    }
 
-    // 3. Metadata va cover
-    const updatedTitle = await cleanAndInjectMetadata(taggedPath, session.customTitle);
-    const coverPath = getCoverPath();
+    // 3. Metadata va to'liq ma'lumotlarni sozlash
+    let updatedTitle = session.customTitle;
+    let coverPath = null;
+    let caption = config.captionTemplate;
+    let performer = config.defaultArtist;
+
+    if (session.isTrimmed) {
+      // Kesilgan musiqa uchun: barcha metadatalar bo'sh (bo'sh joy), cover va caption yo'q
+      await cleanAndInjectMetadata(finalAudioPath, " ");
+      updatedTitle = " ";
+      performer = " ";
+      caption = undefined;
+      coverPath = null;
+    } else {
+      // To'liq musiqa uchun: barcha ma'lumotlar va cover o'z joyida
+      updatedTitle = await cleanAndInjectMetadata(finalAudioPath, session.customTitle);
+      coverPath = getCoverPath();
+    }
 
     // 4. Boshqaruv so'rovnoma xabarini kanal chatidan sezdirilmasdan o'chirish
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
@@ -362,12 +386,11 @@ async function processAndSendFinalAudio(ctx, chatId) {
     // 5. Tayyor musiqani kanalga yuborish
     await ctx.telegram.sendAudio(
       chatId,
-      { source: taggedPath },
+      { source: finalAudioPath },
       {
-        caption: config.captionTemplate,
-        parse_mode: 'HTML',
+        ...(caption && { caption, parse_mode: 'HTML' }),
         title: updatedTitle,
-        performer: config.defaultArtist,
+        performer: performer,
         ...(coverPath && { thumb: { source: coverPath } })
       }
     );
@@ -376,7 +399,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
     console.error("Process Error:", err);
     await ctx.telegram.sendMessage(chatId, "❌ Ishlov berishda xatolik yuz berdi!").catch(() => {});
   } finally {
-    [session.rawPath, processedFxPath, taggedPath].forEach(p => {
+    [session.rawPath, processedFxPath, finalAudioPath].forEach(p => {
       if (p && fs.existsSync(p)) fs.unlinkSync(p);
     });
     delete pendingSessions[chatId];

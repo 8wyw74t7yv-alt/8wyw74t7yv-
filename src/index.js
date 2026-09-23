@@ -3,11 +3,54 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
+const express = require('express');
 const config = require('./config');
 const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
 
 const bot = new Telegraf(config.botToken);
+const app = express();
+
+app.use(express.json());
+// Mini App html/css/js fayllarini static tarqatish
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Referral va User holatini saqlash
+const userDb = new Map();
+
+function getUser(userId) {
+  if (!userDb.has(userId)) {
+    userDb.set(userId, { referrals: new Set() });
+  }
+  return userDb.get(userId);
+}
+
+// BOTGA SHAXSIYDA YOZILGANDA JAVOB BERMASLIK (Lekin referral va deep linklarni ushlash)
+bot.use(async (ctx, next) => {
+  if (ctx.chat && ctx.chat.type === 'private') {
+    // Agar start xabari va referral deep link bo'lsa, xafvsiz referralni qayd etamiz
+    if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start')) {
+      const parts = ctx.message.text.split(' ');
+      if (parts.length > 1 && parts[1].startsWith('ref_')) {
+        const userId = ctx.from.id;
+        const referrerId = parseInt(parts[1].split('_')[1], 10);
+
+        if (referrerId && referrerId !== userId) {
+          const referrerData = getUser(referrerId);
+          referrerData.referrals.add(userId);
+        }
+      }
+    }
+    // Shaxsiy chatda bot HECH QANDAY javob qaytarmaydi
+    return;
+  }
+  return next();
+});
+
+// Backend API: Mini App uchun bot username'ini qaytarish
+app.get('/api/get-bot-info', (req, res) => {
+  res.json({ username: bot.botInfo ? bot.botInfo.username : '' });
+});
 
 // Kanal postlari uchun aktiv seanslar
 const pendingSessions = {};
@@ -124,9 +167,6 @@ bot.on('callback_query', async (ctx, next) => {
   } catch (error) {}
   return next();
 });
-
-bot.start((ctx) => ctx.reply("MuzXs Music Automation Bot ishga tushgan."));
-bot.help((ctx) => ctx.reply("Ushbu bot Telegram kanalingizda musiqalarni avtomatik tahrirlab beradi."));
 
 // ==========================================
 // KANALDA MUSIQANI BOSHQARISH MANTIQI
@@ -404,7 +444,13 @@ async function processAndSendFinalAudio(ctx, chatId) {
   }
 }
 
-bot.launch().then(() => console.log("MuzXs Bot tayyor va ishlamoqda."));
+// Server va Botni ishga tushirish
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, async () => {
+  console.log(`Server ${PORT}-portda ishga tushdi.`);
+  await bot.launch();
+  console.log("MuzXs Bot va Express Mini App tayyor va ishlamoqda.");
+});
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

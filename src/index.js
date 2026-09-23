@@ -383,7 +383,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
         [
           {
             text: "BARABANNI AYLANTIR VA YUT!🤩🎰",
-            web_app: { url: process.env.WEB_APP_URL || "https://8wyw74t7yv-alt.fly.dev" }
+            web_app: { url: process.env.WEB_APP_URL || "https://your-domain.com" }
           }
         ]
       ]

@@ -1,10 +1,9 @@
 const NodeID3 = require('node-id3');
-const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const FormData = require('form-data');
 const config = require('../config');
 
+// Sifatsiz yoki bo'sh sarlavhani aniqlash
 function isGibberishTitle(title) {
   if (!title) return true;
   const clean = title.trim();
@@ -16,27 +15,7 @@ function isGibberishTitle(title) {
   return onlyNumbersOrSymbols.test(clean) || isAudioFilename.test(clean);
 }
 
-async function identifyTrackTitle(filePath) {
-  if (!config.auddApiKey) return null;
-  
-  try {
-    const formData = new FormData();
-    formData.append('file', fs.createReadStream(filePath));
-    formData.append('api_token', config.auddApiKey);
-
-    const res = await axios.post('https://api.audd.io/', formData, {
-      headers: formData.getHeaders()
-    });
-
-    if (res.data && res.data.result && res.data.result.title) {
-      return res.data.result.title;
-    }
-  } catch (err) {
-    console.error("AudD API Error:", err.message);
-  }
-  return null;
-}
-
+// Albom rasmini (Cover) assets papkasidan o'qish
 function getCoverBuffer() {
   const possibleDirs = [
     path.join(__dirname, '../../assets'),
@@ -63,15 +42,15 @@ function getCoverBuffer() {
   return null;
 }
 
+// Metama'lumotlarni tozalash va yangi teglar yozish
 async function cleanAndInjectMetadata(filePath, originalTitle) {
   let finalTitle = originalTitle;
 
   if (isGibberishTitle(finalTitle)) {
-    const identified = await identifyTrackTitle(filePath);
-    finalTitle = identified ? identified : config.fallbackTitle;
+    finalTitle = config.fallbackTitle;
   }
 
-  // Avval eski metadatalarni tozalab tashlaymiz (-1)
+  // Avval eski metadatalarni tozalab tashlaymiz
   NodeID3.removeTags(filePath);
 
   const tags = {
@@ -92,7 +71,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     tags.image = {
       mime: "image/jpeg",
       type: {
-        id: 3, // 3 - Front Cover
+        id: 3, // Front Cover
         name: "front cover"
       },
       description: "MuzXs Cover",
@@ -100,7 +79,7 @@ async function cleanAndInjectMetadata(filePath, originalTitle) {
     };
   }
 
-  // ID3v2.3 formatida yozish Telegram pleyerida rasm chiqishini kafolatlaydi
+  // ID3v2.3 formatida yozish Telegram pleyerida rasm va sarlavha to'g'ri ko'rinishini ta'minlaydi
   const success = NodeID3.write(tags, filePath, {
     id3v2Version: 3
   });

@@ -12,7 +12,12 @@ const bot = new Telegraf(config.botToken);
 const app = express();
 
 app.use(express.json());
+// Static fayllar va asosiy sahifa ulanishi
 app.use(express.static(path.join(__dirname, '../public')));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 // Foydalanuvchilar va kanaldagi to'liq musiqalar bazasi
 const userDb = new Map();
@@ -372,7 +377,19 @@ async function processAndSendFinalAudio(ctx, chatId) {
       fs.unlinkSync(trimmedAudioPath);
     }
 
-    // To'liq musiqani kanalga yuborish
+    // Inline tugma shakllantirish
+    const inlineKeyboard = {
+      inline_keyboard: [
+        [
+          {
+            text: "BARABANNI AYLANTIR VA YUT!🤩🎰",
+            web_app: { url: process.env.WEB_APP_URL || "https://8wyw74t7yv-alt.fly.dev" }
+          }
+        ]
+      ]
+    };
+
+    // To'liq musiqani kanalga inline tugma bilan yuborish
     const sentAudio = await ctx.telegram.sendAudio(
       chatId,
       { source: fullAudioPath },
@@ -381,7 +398,8 @@ async function processAndSendFinalAudio(ctx, chatId) {
         parse_mode: 'HTML',
         title: updatedTitle,
         performer: config.defaultArtist,
-        ...(coverPath && { thumb: { source: coverPath } })
+        ...(coverPath && { thumb: { source: coverPath } }),
+        reply_markup: inlineKeyboard
       }
     );
 

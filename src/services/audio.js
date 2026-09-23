@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * Musiqaga Slowed effekti, yumshoq Echo va qiz bolaning yoqimli ovoziga o'zgartirilgan Voice Tag mix qilish
+ * Musiqaga yumshoq Echo va qiz bolaning yoqimli ovoziga o'zgartirilgan Voice Tag mix qilish 
+ * (Asosiy musiqaning vaqti va tezligi o'zgartirilmaydi)
  */
 function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPath) {
   return new Promise((resolve, reject) => {
@@ -34,15 +35,13 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
 
     let filterComplex = [];
 
-    // Ikkala audioning chastotasi bir xil bo'lmasa ovoz pasayishi (ducking) ishlamay qoladi.
+    // Ikkala audioning chastotasi bir xil bo'lishi uchun format
     const format = "aformat=sample_rates=44100:channel_layouts=stereo";
 
-    // 1. Asosiy musiqani slowed qilamiz va formatlaymiz
-    let filterString = `[${mainIndex}:a]atempo=0.93,${format}[main_slow];`;
+    // 1. Asosiy musiqani o'z holatida (tezligini o'zgartirmasdan) olamiz
+    let filterString = `[${mainIndex}:a]${format}[main_clean];`;
 
-    // MUHIM O'ZGARISH: Qiz bolaning ovozini yoqimli va ehtirosli qilish uchun parametrlar sozlandi
-    // asetrate=44100*1.12 (ovozni mayin ingichkalashtiradi), atempo=0.89 (tezligini to'g'irlaydi)
-    // aecho - ehtirosli va chuqur (lush) aks-sado beradi
+    // Qiz bolaning ovozini yoqimli va ehtirosli qilish uchun parametrlar
     const voiceFxChain = `volume=1.5,asetrate=44100*1.12,atempo=0.89,aecho=0.8:0.9:350|700:0.4|0.2,${format}`;
 
     // OVOZ PASAYISHI VA KO'TARILISHI (Ducking)
@@ -52,7 +51,7 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     if (hasStartTag && !hasEndTag) {
       filterString += 
         `[0:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
-        `[main_slow][tag_side]${duckParams}[main_ducked];` +
+        `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     } 
     // 3. Agar faqat oxiriga tag qo'shilsa
@@ -60,18 +59,16 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
       const endTagIndex = mainIndex + 1;
       filterString += 
         `[${endTagIndex}:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
-        `[main_slow][tag_side]${duckParams}[main_ducked];` +
+        `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     } 
     // 4. Ham boshiga, ham oxiriga qo'shilsa
     else if (hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
-      // XATONI TUZATISH: End tag 0-soniyada ijro etilib ketmasligi uchun uni anullsink orqali "yutib yuboramiz"
-      // va faqatgina 10-soniyada ijro etiladigan 1 ta audio tag qoldiramiz.
       filterString += 
         `[0:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
         `[${endTagIndex}:a]anullsink;` +
-        `[main_slow][tag_side]${duckParams}[main_ducked];` +
+        `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     }
 

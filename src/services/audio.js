@@ -38,6 +38,9 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     // Ikkala audioning chastotasi bir xil bo'lishi uchun format
     const format = "aformat=sample_rates=44100:channel_layouts=stereo";
 
+    // Voice tagni 01:00 daqiqada (60 soniya = 60000 millisekund) ijro etish sozlamasi
+    const tagDelayMs = 60000;
+
     // 1. Asosiy musiqani o'z holatida (tezligini o'zgartirmasdan) olamiz
     let filterString = `[${mainIndex}:a]${format}[main_clean];`;
 
@@ -47,10 +50,10 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     // OVOZ PASAYISHI VA KO'TARILISHI (Ducking)
     const duckParams = "sidechaincompress=threshold=0.03:ratio=8:attack=800:release=2000";
 
-    // 2. Agar faqat boshiga tag qo'shilsa
+    // 2. Agar faqat boshiga tag qo'shilsa (60000 ms = 1 daqiqa)
     if (hasStartTag && !hasEndTag) {
       filterString += 
-        `[0:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
+        `[0:a]${voiceFxChain},adelay=${tagDelayMs}|${tagDelayMs},apad,asplit=2[tag_mix][tag_side];` +
         `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     } 
@@ -58,7 +61,7 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     else if (!hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
       filterString += 
-        `[${endTagIndex}:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
+        `[${endTagIndex}:a]${voiceFxChain},adelay=${tagDelayMs}|${tagDelayMs},apad,asplit=2[tag_mix][tag_side];` +
         `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     } 
@@ -66,7 +69,7 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     else if (hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
       filterString += 
-        `[0:a]${voiceFxChain},adelay=10000|10000,apad,asplit=2[tag_mix][tag_side];` +
+        `[0:a]${voiceFxChain},adelay=${tagDelayMs}|${tagDelayMs},apad,asplit=2[tag_mix][tag_side];` +
         `[${endTagIndex}:a]anullsink;` +
         `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;

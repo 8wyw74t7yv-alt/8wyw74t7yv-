@@ -1,0 +1,17 @@
+# fly.toml app configuration file generated for 8wyw74t7yv-alt
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = '8wyw74t7yv-alt'
+primary_region = 'fra'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  NODE_ENV = 'production'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'

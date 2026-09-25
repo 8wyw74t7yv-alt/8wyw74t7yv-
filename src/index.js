@@ -609,6 +609,7 @@ app.get('/', (req, res) => {
     `);
 });
 
-app.listen(PORT, () => {
-    console.log(`Server ishlamoqda: http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server ishlamoqda: http://0.0.0.0:${PORT}`);
 });
+

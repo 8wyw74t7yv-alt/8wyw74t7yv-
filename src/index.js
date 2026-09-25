@@ -129,7 +129,6 @@ bot.on('channel_post', async (ctx) => {
     const rawTitle = audio.title || audio.file_name || "Track";
     const cleanedTitle = `${cleanTrackTitle(rawTitle)} 🎧`;
 
-    // Tanlangan effektlar: { effectKey: intensityValue (0-100) }
     const initialEffects = {};
 
     const promptMsg = await ctx.telegram.sendMessage(
@@ -147,7 +146,7 @@ bot.on('channel_post', async (ctx) => {
       trimStart: 0,
       trimDuration: 30,
       promptMessageId: promptMsg.message_id,
-      selectedEffects: initialEffects, // e.g. { binaural3d: 80, bassBoost: 50 }
+      selectedEffects: initialEffects,
       currentPage: 1
     };
 
@@ -254,7 +253,6 @@ async function renderEffectsMenu(ctx, chatId, page = 1) {
   });
   if (row.length > 0) buttons.push(row);
 
-  // Pagination tugmalari
   const navRow = [];
   if (page > 1) {
     navRow.push(Markup.button.callback("⬅️ 1-Sahifa", `nav_fx_page_1_${chatId}`));
@@ -430,7 +428,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
     const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
     const coverPath = getCoverPath();
 
-    // Barcha ishlar yakunlangach menyuni o'chiramiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
     if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {

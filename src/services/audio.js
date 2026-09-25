@@ -50,7 +50,7 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     // OVOZ PASAYISHI VA KO'TARILISHI (Ducking)
     const duckParams = "sidechaincompress=threshold=0.03:ratio=8:attack=800:release=2000";
 
-    // 2. Agar faqat boshiga tag qo'shilsa (60000 ms = 1 daqiqa)
+    // 2. Agar faqat boshiga tag qo'shilsa
     if (hasStartTag && !hasEndTag) {
       filterString += 
         `[0:a]${voiceFxChain},adelay=${tagDelayMs}|${tagDelayMs},apad,asplit=2[tag_mix][tag_side];` +
@@ -69,8 +69,10 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
     else if (hasStartTag && hasEndTag) {
       const endTagIndex = mainIndex + 1;
       filterString += 
-        `[0:a]${voiceFxChain},adelay=${tagDelayMs}|${tagDelayMs},apad,asplit=2[tag_mix][tag_side];` +
-        `[${endTagIndex}:a]anullsink;` +
+        `[0:a]${voiceFxChain},adelay=0|0[start_tag];` +
+        `[${endTagIndex}:a]${voiceFxChain},adelay=${tagDelayMs}|${tagDelayMs}[end_tag];` +
+        `[start_tag][end_tag]amix=inputs=2[all_tags];` +
+        `[all_tags]apad,asplit=2[tag_mix][tag_side];` +
         `[main_clean][tag_side]${duckParams}[main_ducked];` +
         `[main_ducked][tag_mix]amix=inputs=2:duration=first:weights=1 1:dropout_transition=2[outa]`;
     }
@@ -119,48 +121,48 @@ function processAdvancedEffects(inputPath, outputPath, selectedEffects = {}, dur
   return new Promise((resolve, reject) => {
     let filters = [];
 
-    // 1. Smooth Fade In & Out
+    // 1. Noise Reduction
+    if (selectedEffects.noiseReduction) {
+      filters.push("afftdn=nr=12:nf=-25");
+    }
+
+    // 2. Voice Isolator
+    if (selectedEffects.voiceIsolator) {
+      filters.push("pan=stereo|c0=c0-c1|c1=c0-c1");
+    }
+
+    // 3. Bass Boost
+    if (selectedEffects.bassBoost) {
+      filters.push("equalizer=f=60:width_type=h:width=50:g=10");
+    }
+
+    // 4. Slowed
+    if (selectedEffects.slowed) {
+      filters.push("atempo=0.92");
+    }
+
+    // 5. Reverb & Echo
+    if (selectedEffects.reverbEcho) {
+      filters.push("aecho=0.8:0.88:60|120:0.4|0.25");
+    }
+
+    // 6. Binaural 3D Echo Chamber
+    if (selectedEffects.binaural3d) {
+      filters.push("aecho=0.8:0.9:1000|1800:0.3|0.25,apulsator=hz=0.08:amount=0.9");
+    }
+
+    // 7. 8D Audio
+    if (selectedEffects.eightD) {
+      filters.push("apulsator=hz=0.125:amount=1");
+    }
+
+    // 8. Smooth Fade In & Out
     if (selectedEffects.smoothFade !== false) {
       const fadeOutStart = Math.max(0, duration - 3);
       filters.push(`afade=t=in:ss=0:d=2,afade=t=out:st=${fadeOutStart}:d=3`);
     }
 
-    // 2. Reverb & Echo
-    if (selectedEffects.reverbEcho) {
-      filters.push("aecho=0.8:0.88:60|120:0.4|0.25");
-    }
-
-    // 3. Binaural 3D Echo Chamber (Kosmik aks-sado va akustik hajm)
-    if (selectedEffects.binaural3d) {
-      filters.push("aecho=0.8:0.9:1000|1800:0.3|0.25,apulsator=hz=0.08:amount=0.9");
-    }
-
-    // 4. 8D Audio
-    if (selectedEffects.eightD) {
-      filters.push("apulsator=hz=0.125:amount=1");
-    }
-
-    // 5. Bass Boost
-    if (selectedEffects.bassBoost) {
-      filters.push("equalizer=f=60:width_type=h:width=50:g=10");
-    }
-
-    // 6. Slowed
-    if (selectedEffects.slowed) {
-      filters.push("atempo=0.92");
-    }
-
-    // 7. Noise Reduction
-    if (selectedEffects.noiseReduction) {
-      filters.push("afftdn=nr=12:nf=-25");
-    }
-
-    // 8. Voice Isolator
-    if (selectedEffects.voiceIsolator) {
-      filters.push("pan=stereo|c0=c0-c1|c1=c0-c1");
-    }
-
-    // 9. EBU R128 (-14 LUFS) Avtomatik Normalizatsiya
+    // 9. EBU R128 (-14 LUFS) Avtomatik Normalizatsiya (Har doim oxirida bo'lishi kerak)
     if (selectedEffects.ebuNormalization !== false) {
       filters.push("loudnorm=I=-14:LRA=11:TP=-1.5");
     }

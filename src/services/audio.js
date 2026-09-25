@@ -3,6 +3,19 @@ const path = require('path');
 const fs = require('fs');
 
 /**
+ * Audio effektlar ro'yxati va ularning standart ma'lumotlari
+ */
+const AUDIO_EFFECTS_LIST = [
+  { key: 'bassBoost', title: '🔊 Bass Boost' },
+  { key: 'slowed', title: '🐌 Slowed + Reverb' },
+  { key: 'reverbEcho', title: '🏛 Reverb & Echo' },
+  { key: 'binaural3d', title: '🎧 8D / Binaural 3D' },
+  { key: 'eightD', title: '🔄 8D Pulsator' },
+  { key: 'voiceIsolator', title: '🎤 Voice Isolator' },
+  { key: 'noiseReduction', title: '🧹 Shovqinni tozalash' }
+];
+
+/**
  * Musiqaga yumshoq Echo va qiz bolaning yoqimli ovoziga o'zgartirilgan Voice Tag mix qilish 
  * (Asosiy musiqaning vaqti va tezligi o'zgartirilmaydi)
  */
@@ -91,10 +104,10 @@ function processAudioWithVoiceTag(inputPath, outputPath, startTagPath, endTagPat
 }
 
 /**
- * Musiqani belgilangan vaqt oralig'ida kesish (Trim) va BARCHA METADATALARNI TOZALASH
- * Sukut bo'yicha (default) duration = 30 sekund qilib belgilandi.
+ * Musiqani belgilangan vaqt oralig'ida kesish (Trim) va METADATALARNI TOZALASH
+ * Sukut bo'yicha duration = 30 sekund.
  */
-function trimAudio(inputPath, outputPath, startSeconds, duration = 30) {
+function trimAudio(inputPath, outputPath, startSeconds = 0, duration = 30) {
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .setStartTime(startSeconds)
@@ -111,38 +124,40 @@ function trimAudio(inputPath, outputPath, startSeconds, duration = 30) {
 }
 
 /**
- * Kengaytirilgan Audio Effektlar (Super Preset, Pro Preset va Binaural 3D Echo Chamber)
+ * Maxsus Audio Effektlarni Qo'llash
  * @param {string} inputPath - Kiruvchi audio manzili
  * @param {string} outputPath - Chiquvchi audio manzili
- * @param {Object} selectedEffects - Tanlangan effektlar obyekti
+ * @param {Object} selectedEffects - Tanlangan effektlar darajasi (0-100 yoki boolean)
  * @param {number} duration - Audio davomiyligi (soniyada)
  */
-function processAdvancedEffects(inputPath, outputPath, selectedEffects = {}, duration = 180) {
+function applyCustomAudioEffects(inputPath, outputPath, selectedEffects = {}, duration = 180) {
   return new Promise((resolve, reject) => {
     let filters = [];
 
-    // 1. Noise Reduction
+    // 1. Shovqinni kamaytirish
     if (selectedEffects.noiseReduction) {
       filters.push("afftdn=nr=12:nf=-25");
     }
 
-    // 2. Voice Isolator
+    // 2. Vokalni ajratish
     if (selectedEffects.voiceIsolator) {
       filters.push("pan=stereo|c0=c0-c1|c1=c0-c1");
     }
 
     // 3. Bass Boost
     if (selectedEffects.bassBoost) {
-      filters.push("equalizer=f=60:width_type=h:width=50:g=10");
+      const val = typeof selectedEffects.bassBoost === 'number' ? selectedEffects.bassBoost : 50;
+      const gain = (val / 100) * 15; // 0-15 dB oralig'ida
+      filters.push(`equalizer=f=60:width_type=h:width=50:g=${gain.toFixed(1)}`);
     }
 
-    // 4. Slowed
+    // 4. Slowed + Reverb
     if (selectedEffects.slowed) {
-      filters.push("atempo=0.92");
+      filters.push("atempo=0.92,aecho=0.8:0.88:60|120:0.4|0.25");
     }
 
     // 5. Reverb & Echo
-    if (selectedEffects.reverbEcho) {
+    if (selectedEffects.reverbEcho && !selectedEffects.slowed) {
       filters.push("aecho=0.8:0.88:60|120:0.4|0.25");
     }
 
@@ -152,17 +167,17 @@ function processAdvancedEffects(inputPath, outputPath, selectedEffects = {}, dur
     }
 
     // 7. 8D Audio
-    if (selectedEffects.eightD) {
+    if (selectedEffects.eightD && !selectedEffects.binaural3d) {
       filters.push("apulsator=hz=0.125:amount=1");
     }
 
-    // 8. Smooth Fade In & Out
+    // 8. Mayin kirish va chiqish (Smooth Fade)
     if (selectedEffects.smoothFade !== false) {
       const fadeOutStart = Math.max(0, duration - 3);
       filters.push(`afade=t=in:ss=0:d=2,afade=t=out:st=${fadeOutStart}:d=3`);
     }
 
-    // 9. EBU R128 (-14 LUFS) Avtomatik Normalizatsiya (Har doim oxirida bo'lishi kerak)
+    // 9. EBU R128 Avtomatik Normalizatsiya
     if (selectedEffects.ebuNormalization !== false) {
       filters.push("loudnorm=I=-14:LRA=11:TP=-1.5");
     }
@@ -183,7 +198,9 @@ function processAdvancedEffects(inputPath, outputPath, selectedEffects = {}, dur
 }
 
 module.exports = {
+  AUDIO_EFFECTS_LIST,
   processAudioWithVoiceTag,
   trimAudio,
-  processAdvancedEffects
+  applyCustomAudioEffects,
+  processAdvancedEffects: applyCustomAudioEffects // Eskirgan nomlar mosligi uchun
 };

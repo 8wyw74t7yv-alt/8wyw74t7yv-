@@ -2,9 +2,10 @@ const { Telegraf, Markup } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const ffmpeg = require('fluent-ffmpeg');
 const express = require('express');
 const config = require('./config');
-const { processAudioWithVoiceTag, trimAudio, applyCustomAudioEffects, AUDIO_EFFECTS_LIST } = require('./services/audio');
+const { processAudioWithVoiceTag, trimAudio } = require('./services/audio');
 const { cleanAndInjectMetadata } = require('./services/metadata');
 
 const bot = new Telegraf(config.botToken);
@@ -17,14 +18,19 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// Bot shaxsiy xabarlarga (Private chat) umuman javob bermaydi
-bot.use(async (ctx, next) => {
-  if (ctx.chat && ctx.chat.type === 'private') {
-    return; // Jim rejim
-  }
-  return next();
-});
+const userDb = new Map();
+const channelTrackHistory = [];
 
+function getUser(userId) {
+  if (!userDb.has(userId)) {
+    userDb.set(userId, { referrals: new Set() });
+  }
+  return userDb.get(userId);
+}
+
+// ==========================================
+// 1. NAVBAT TIZIMI (QUEUE SYSTEM)
+// ==========================================
 const processingQueue = [];
 let isProcessingQueue = false;
 
@@ -41,15 +47,55 @@ async function processNextInQueue() {
   try {
     await currentTask();
   } catch (err) {
-    console.error("Navbatda xatolik:", err);
+    console.error("Queue Task Xatolik:", err);
   } finally {
     isProcessingQueue = false;
     processNextInQueue();
   }
 }
 
+bot.use(async (ctx, next) => {
+  if (ctx.chat && ctx.chat.type === 'private') {
+    if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/start')) {
+      const parts = ctx.message.text.split(' ');
+      if (parts.length > 1 && parts[1].startsWith('ref_')) {
+        const userId = ctx.from.id;
+        const referrerId = parseInt(parts[1].split('_')[1], 10);
+
+        if (referrerId && referrerId !== userId) {
+          const referrerData = getUser(referrerId);
+          referrerData.referrals.add(userId);
+
+          if (channelTrackHistory.length > 0) {
+            const randomIndex = Math.floor(Math.random() * channelTrackHistory.length);
+            const randomTrack = channelTrackHistory[randomIndex];
+
+            try {
+              await bot.telegram.sendAudio(referrerId, randomTrack.file_id, {
+                caption: `🎉 **SHART BAJARILDI!**\nDo'stingiz kirdi. Mana kanalingizdagi eksklyuziv to'liq musiqa:`,
+                parse_mode: 'Markdown'
+              });
+            } catch (err) {
+              console.error("Musiqa yuborishda xatolik:", err);
+            }
+          }
+        }
+      }
+    }
+    return;
+  }
+  return next();
+});
+
+app.get('/api/get-bot-info', (req, res) => {
+  res.json({ username: bot.botInfo ? bot.botInfo.username : process.env.BOT_USERNAME || '' });
+});
+
 const pendingSessions = {};
 
+// ==========================================
+// 2. AVTOMATIK CLEAN TITLE
+// ==========================================
 function cleanTrackTitle(rawTitle) {
   if (!rawTitle) return "Track";
   let cleaned = rawTitle
@@ -63,6 +109,224 @@ function cleanTrackTitle(rawTitle) {
     .trim();
   return cleaned || "Track";
 }
+
+// ==========================================
+// 3. EFFEKTLAR BAZASI (23 TA EFFEKT - Dynamic Filter Generation)
+// ==========================================
+const AUDIO_EFFECTS = [
+  {
+    key: 'slowed',
+    title: '🐌 Slowed',
+    getFilter: (val) => {
+      // 0% -> 1.0, 100% -> 0.5
+      const speed = (1.0 - (val / 100) * 0.5).toFixed(2);
+      return `atempo=${speed}`;
+    }
+  },
+  {
+    key: 'bassBoost',
+    title: '🔊 Bass Boost',
+    getFilter: (val) => {
+      // 0% -> 0dB, 100% -> 25dB
+      const gain = Math.round((val / 100) * 25);
+      return `equalizer=f=60:width_type=h:width=50:g=${gain}`;
+    }
+  },
+  {
+    key: 'ebuNormalization',
+    title: '📊 EBU Normalization',
+    getFilter: (val) => {
+      // 0% -> -24 LUFS, 100% -> -8 LUFS
+      const lufs = (-24 + (val / 100) * 16).toFixed(1);
+      return `loudnorm=I=${lufs}:LRA=11:TP=-1.5`;
+    }
+  },
+  {
+    key: 'smoothFade',
+    title: '🎚 Smooth Fade In & Out',
+    getFilter: (val, duration) => {
+      const dur = duration || 180;
+      // 0% -> 0.5s fade, 100% -> 10s fade
+      const fadeDur = Math.max(0.5, ((val / 100) * 10)).toFixed(1);
+      const fadeOutStart = Math.max(0, dur - fadeDur).toFixed(1);
+      return `afade=t=in:ss=0:d=${fadeDur},afade=t=out:st=${fadeOutStart}:d=${fadeDur}`;
+    }
+  },
+  {
+    key: 'voiceIsolator',
+    title: '🎤 Voice Isolator',
+    getFilter: (val) => {
+      // High-pass & Low-pass vocal range filter based on intensity
+      const hp = Math.round(100 + (val / 100) * 200);
+      const lp = Math.round(8000 - (val / 100) * 4000);
+      return `highpass=f=${hp},lowpass=f=${lp}`;
+    }
+  },
+  {
+    key: 'eightD',
+    title: '🎧 8D Audio',
+    getFilter: (val) => {
+      // 0% -> 0.05 Hz, 100% -> 0.8 Hz
+      const hz = (0.05 + (val / 100) * 0.75).toFixed(3);
+      return `apulsator=hz=${hz}:amount=1`;
+    }
+  },
+  {
+    key: 'reverbEcho',
+    title: '🏛 Reverb & Echo',
+    getFilter: (val) => {
+      const delay = Math.round(20 + (val / 100) * 180);
+      const decay = (0.1 + (val / 100) * 0.75).toFixed(2);
+      return `aecho=0.8:0.88:${delay}:${decay}`;
+    }
+  },
+  {
+    key: 'pure3D',
+    title: '🌌 Pure 3D Spatial Audio',
+    getFilter: (val) => {
+      // 0% -> light 3D spatializing, 100% -> extreme 3D rotation & depth
+      const hz = (0.03 + (val / 100) * 0.4).toFixed(3);
+      const width = (1.0 + (val / 100) * 2.0).toFixed(2);
+      return `apulsator=hz=${hz}:amount=0.85,extrastereo=m=${width}`;
+    }
+  },
+  {
+    key: 'nightcore',
+    title: '⚡️ Nightcore',
+    getFilter: (val) => {
+      // 0% -> 1.05x speed, 100% -> 1.6x speed + pitch gain
+      const speed = (1.05 + (val / 100) * 0.55).toFixed(2);
+      return `asetrate=44100*${speed},aresample=44100,atempo=1.0`;
+    }
+  },
+  {
+    key: 'speedUp',
+    title: '🚀 Speed Up',
+    getFilter: (val) => {
+      // 0% -> 1.05x, 100% -> 2.0x
+      const speed = (1.05 + (val / 100) * 0.95).toFixed(2);
+      return `atempo=${speed}`;
+    }
+  },
+  {
+    key: 'trebleBoost',
+    title: '🎼 Treble Boost',
+    getFilter: (val) => {
+      // 0% -> 0dB, 100% -> 20dB at 10kHz
+      const gain = Math.round((val / 100) * 20);
+      return `equalizer=f=10000:width_type=h:width=1000:g=${gain}`;
+    }
+  },
+  {
+    key: 'vaporwave',
+    title: '🌴 Vaporwave',
+    getFilter: (val) => {
+      // 0% -> 0.95x, 100% -> 0.7x + lowpass + reverb
+      const speed = (0.95 - (val / 100) * 0.25).toFixed(2);
+      return `asetrate=44100*${speed},aresample=44100,lowpass=f=3500`;
+    }
+  },
+  {
+    key: 'stereoEnhancer',
+    title: '↔️ Stereo Enhancer',
+    getFilter: (val) => {
+      // 0% -> m=1.1, 100% -> m=3.5
+      const m = (1.1 + (val / 100) * 2.4).toFixed(1);
+      return `extrastereo=m=${m}`;
+    }
+  },
+  {
+    key: 'flanger',
+    title: '🌊 Flanger Effect',
+    getFilter: (val) => {
+      // 0% -> light flange, 100% -> deep jet sweep
+      const depth = (1 + (val / 100) * 9).toFixed(1);
+      const speed = (0.1 + (val / 100) * 1.9).toFixed(1);
+      return `flanger=delay=${depth}:speed=${speed}`;
+    }
+  },
+  {
+    key: 'chorus',
+    title: '👥 Chorus Ensemble',
+    getFilter: (val) => {
+      const delay = Math.round(20 + (val / 100) * 40);
+      const decay = (0.2 + (val / 100) * 0.6).toFixed(2);
+      return `chorus=0.7:0.9:${delay}:${decay}:0.25:2`;
+    }
+  },
+  {
+    key: 'telephoneFilter',
+    title: '📞 Old Telephone',
+    getFilter: (val) => {
+      // 0% -> broad phone, 100% -> extreme narrow walkie-talkie band
+      const low = Math.round(300 + (val / 100) * 400);
+      const high = Math.round(3400 - (val / 100) * 1400);
+      return `highpass=f=${low},lowpass=f=${high}`;
+    }
+  },
+  {
+    key: 'muffledConcert',
+    title: '🚪 Concert Bathroom (Muffled)',
+    getFilter: (val) => {
+      // 0% -> 2000Hz, 100% -> 400Hz cutoff (extreme underwater/room effect)
+      const lp = Math.round(2000 - (val / 100) * 1600);
+      return `lowpass=f=${lp},aecho=0.8:0.88:40:0.4`;
+    }
+  },
+  {
+    key: 'pitchShiftHigh',
+    title: '🐿 Chipmunk Pitch (High)',
+    getFilter: (val) => {
+      // 0% -> +1 semitone, 100% -> +12 semitones
+      const pitch = (1.05 + (val / 100) * 0.95).toFixed(2);
+      return `asetrate=44100*${pitch},aresample=44100`;
+    }
+  },
+  {
+    key: 'pitchShiftLow',
+    title: '👹 Deep Monster Voice',
+    getFilter: (val) => {
+      // 0% -> -1 semitone, 100% -> -12 semitones
+      const pitch = (0.95 - (val / 100) * 0.45).toFixed(2);
+      return `asetrate=44100*${pitch},aresample=44100`;
+    }
+  },
+  {
+    key: 'phaser',
+    title: '🛸 Phaser Space Sweep',
+    getFilter: (val) => {
+      const speed = (0.1 + (val / 100) * 2.0).toFixed(1);
+      const decay = (0.2 + (val / 100) * 0.7).toFixed(2);
+      return `aphaser=in_gain=0.8:out_gain=0.74:delay=3:decay=${decay}:speed=${speed}`;
+    }
+  },
+  {
+    key: 'distortedOverdrive',
+    title: '🎸 Heavy Distortion',
+    getFilter: (val) => {
+      // 0% -> light warm overdrive, 100% -> extreme heavy fuzz
+      const drive = Math.round(5 + (val / 100) * 80);
+      return `acrusher=level_in=1:level_out=1:bits=16:mode=log:anti_aliasing=1,volume=${drive}dB`;
+    }
+  },
+  {
+    key: 'underwater',
+    title: '🌊 Deep Underwater',
+    getFilter: (val) => {
+      const lp = Math.round(1200 - (val / 100) * 900);
+      return `lowpass=f=${lp},volume=1.5`;
+    }
+  },
+  {
+    key: 'radioAM',
+    title: '📻 AM Vintage Radio',
+    getFilter: (val) => {
+      const hp = Math.round(400 + (val / 100) * 400);
+      const lp = Math.round(2500 - (val / 100) * 1000);
+      return `highpass=f=${hp},lowpass=f=${lp},volume=1.3`;
+    }
+  }
+];
 
 function getCoverPath() {
   const possibleDirs = [
@@ -81,10 +345,42 @@ function getCoverPath() {
   return null;
 }
 
-function formatTime(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+function getAudioDuration(inputPath) {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(inputPath, (err, metadata) => {
+      if (err || !metadata || !metadata.format || !metadata.format.duration) {
+        return resolve(0);
+      }
+      resolve(metadata.format.duration);
+    });
+  });
+}
+
+function applyCustomAudioEffects(inputPath, outputPath, effectIntensities, duration) {
+  return new Promise((resolve, reject) => {
+    let command = ffmpeg(inputPath);
+    const filters = [];
+
+    AUDIO_EFFECTS.forEach(eff => {
+      const intensity = effectIntensities[eff.key];
+      if (intensity && intensity > 0) {
+        const filterStr = eff.getFilter(intensity, duration);
+        if (filterStr) {
+          filters.push(filterStr);
+        }
+      }
+    });
+
+    if (filters.length > 0) {
+      command.audioFilters(filters);
+    }
+
+    command
+      .output(outputPath)
+      .on('end', () => resolve(outputPath))
+      .on('error', (err) => reject(err))
+      .run();
+  });
 }
 
 bot.on('callback_query', async (ctx, next) => {
@@ -94,95 +390,145 @@ bot.on('callback_query', async (ctx, next) => {
   return next();
 });
 
-// Kanalga musiqa tashlanganda ishga tushadi
+// ==========================================
+// 4. KANAL POSTINI QABUL QILISH
+// ==========================================
 bot.on('channel_post', async (ctx) => {
   const post = ctx.channelPost;
-  if (!post || !post.audio) return;
+  if (!post) return;
 
   const chatId = post.chat.id;
-  const messageId = post.message_id;
-  const audio = post.audio;
+  const session = pendingSessions[chatId];
 
-  const tempDir = path.join(__dirname, '../temp');
-  const assetsDir = path.join(__dirname, '../assets');
+  // Text inputs handling (Title & Trim time)
+  if (post.text && session) {
+    const text = post.text.trim();
+    const userMessageId = post.message_id;
 
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    if (session.step === 'waitingForTitle') {
+      await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
+      session.customTitle = `${cleanTrackTitle(text)} 🎧`;
+      showMainMenu(ctx, chatId);
+      return;
+    }
 
-  const rawPath = path.join(tempDir, `raw_${audio.file_id}.mp3`);
-  const startTagPath = path.join(assetsDir, 'voicetag_start.mp3');
-  const endTagPath = path.join(assetsDir, 'voicetag_end.mp3');
+    if (session.step === 'waitingForTrimTime30') {
+      await ctx.telegram.deleteMessage(chatId, userMessageId).catch(() => {});
 
-  try {
-    const fileLink = await ctx.telegram.getFileLink(audio.file_id);
-    const response = await axios({ method: 'get', url: fileLink.href, responseType: 'stream' });
-    const writer = fs.createWriteStream(rawPath);
+      let minutes = 0;
+      let seconds = 0;
 
-    response.data.pipe(writer);
+      if (text.includes(':')) {
+        const parts = text.split(':');
+        minutes = parseInt(parts[0], 10) || 0;
+        seconds = parseInt(parts[1], 10) || 0;
+      } else if (text.includes(' ')) {
+        const parts = text.split(/\s+/);
+        minutes = parseInt(parts[0], 10) || 0;
+        seconds = parseInt(parts[1], 10) || 0;
+      } else {
+        seconds = parseInt(text, 10) || 0;
+      }
 
-    await new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
+      const calculatedStart = (minutes * 60) + seconds;
 
-    await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
+      session.trimStart = calculatedStart;
+      session.trimDuration = 30;
+      session.isTrimmed = true;
 
-    const rawTitle = audio.title || audio.file_name || "Track";
-    const cleanedTitle = `${cleanTrackTitle(rawTitle)} 🎧`;
+      showMainMenu(ctx, chatId);
+      return;
+    }
+  }
 
-    const initialEffects = {};
+  // Audio files receiving
+  if (post.audio) {
+    const messageId = post.message_id;
+    const audio = post.audio;
 
-    const promptMsg = await ctx.telegram.sendMessage(
-      chatId, 
-      "⚡️ **Musiqa yuklandi! Boshqaruv paneli tayyorlanmoqda...**", 
-      { parse_mode: 'Markdown' }
-    );
+    const tempDir = path.join(__dirname, '../temp');
+    const assetsDir = path.join(__dirname, '../assets');
 
-    pendingSessions[chatId] = {
-      rawPath,
-      startTagPath,
-      endTagPath,
-      customTitle: cleanedTitle,
-      isTrimmed: false,
-      trimStart: 0,
-      trimDuration: 30,
-      promptMessageId: promptMsg.message_id,
-      selectedEffects: initialEffects,
-      currentPage: 1
-    };
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
 
-    await renderMainMenu(ctx, chatId);
+    const rawPath = path.join(tempDir, `raw_${audio.file_id}.mp3`);
+    const startTagPath = path.join(assetsDir, 'voicetag_start.mp3');
+    const endTagPath = path.join(assetsDir, 'voicetag_end.mp3');
 
-  } catch (err) {
-    console.error("Audio yuklab olish xatosi:", err);
+    try {
+      const fileLink = await ctx.telegram.getFileLink(audio.file_id);
+      const response = await axios({ method: 'get', url: fileLink.href, responseType: 'stream' });
+      const writer = fs.createWriteStream(rawPath);
+
+      response.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+      });
+
+      await ctx.telegram.deleteMessage(chatId, messageId).catch(() => {});
+
+      const rawTitle = audio.title || audio.file_name || "Track";
+      const cleanedTitle = `${cleanTrackTitle(rawTitle)} 🎧`;
+
+      const promptMsg = await ctx.telegram.sendMessage(chatId, 
+        `✍️ **Musiqa qabul qilindi!**\n\nIltimos, ushbu musiqa uchun **nom (title)** yuboring (masalan: *Artist - Track Name*):`, 
+        { parse_mode: 'Markdown' }
+      );
+
+      // Har bir effekt uchun default 0 intensivlik holatini yuklaymiz
+      const initialEffects = {};
+      AUDIO_EFFECTS.forEach(eff => {
+        initialEffects[eff.key] = 0;
+      });
+
+      pendingSessions[chatId] = {
+        rawPath,
+        startTagPath,
+        endTagPath,
+        customTitle: cleanedTitle,
+        isTrimmed: false,
+        trimStart: 0,
+        trimDuration: 30,
+        step: 'waitingForTitle',
+        promptMessageId: promptMsg.message_id,
+        effectIntensities: initialEffects,
+        currentEffectIndex: 0
+      };
+
+    } catch (err) {
+      console.error("Audio yuklab olish xatosi:", err);
+    }
   }
 });
 
 // ==========================================
-// YAGONA BIR MENYU INTERFEYSI (EDIT MESSAGE)
+// 5. YAGONA INLINE MENYU TIZIMI (EDIT MESSAGE ONLY)
 // ==========================================
-
-// 1. Asosiy Menyu Render
-async function renderMainMenu(ctx, chatId) {
+async function showMainMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
   if (!session) return;
 
-  const activeEffectsCount = Object.keys(session.selectedEffects).length;
-  const trimInfo = session.isTrimmed ? `🟢 ${formatTime(session.trimStart)} (30s)` : "🔴 O'chirilgan";
+  session.step = 'mainMenu';
+
+  const activeEffects = AUDIO_EFFECTS
+    .filter(e => session.effectIntensities[e.key] > 0)
+    .map(e => `${e.title} (${session.effectIntensities[e.key]}%)`);
+
+  const activeText = activeEffects.length > 0 ? activeEffects.join('\n• ') : 'Yo\'q (Standart)';
+  const trimStatus = session.isTrimmed ? `✅ ${session.trimStart}s dan +30s` : "❌ Tanlanmadi";
 
   const text = `🎧 **MUSIQA BOSHQARUV PANELI**\n\n` +
                `🎵 **Nomi:** ${session.customTitle}\n` +
-               `⏱ **30s Kesish:** ${trimInfo}\n` +
-               `🎛 **Faol effektlar:** ${activeEffectsCount} ta\n\n` +
-               `👇 *Quyidagi tugmalar orqali sozlashingiz mumkin:*`;
+               `⏱ **30s Kesish:** ${trimStatus}\n\n` +
+               `🎛 **Faol effektlar:**\n• ${activeText}\n\n` +
+               `Kerakli bo'limni tanlang:`;
 
   const keyboard = Markup.inlineKeyboard([
-    [
-      Markup.button.callback("⏱ 30s Kesish Sozlamasi", `nav_trim_${chatId}`),
-      Markup.button.callback("🎛 Effektlar (21 ta)", `nav_fx_page_1_${chatId}`)
-    ],
-    [
-      Markup.button.callback("🚀 TAYYOR (Kanalga Joylash)", `process_final_${chatId}`)
-    ]
+    [Markup.button.callback("⏱ 30s Kesish vaqtini belgilash", `menu_trim30_${chatId}`)],
+    [Markup.button.callback("🎛 Effektlarni Sozlash (0-100%)", `menu_fx_select_${chatId}`)],
+    [Markup.button.callback("🚀 TAYYOR (Kanalga Joylash)", `process_final_${chatId}`)]
   ]);
 
   await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, text, {
@@ -191,230 +537,168 @@ async function renderMainMenu(ctx, chatId) {
   }).catch(() => {});
 }
 
-// 2. 30 Soniya Kesish Sozlamasi Menyu
-async function renderTrimMenu(ctx, chatId) {
-  const session = pendingSessions[chatId];
-  if (!session) return;
-
-  const statusText = session.isTrimmed ? `🟢 Yoqilgan` : `🔴 O'chirilgan`;
-  const timeText = formatTime(session.trimStart);
-
-  const text = `⏱ **30 SONIYA KESISH SOZLAMASI**\n\n` +
-               `📌 **Holati:** ${statusText}\n` +
-               `🕒 **Boshlanish vaqti:** \`${timeText}\` (+30 soniya)\n\n` +
-               `*Vaqtni o'zgartirish uchun pastdagi tugmalarni bosing:*`;
-
-  const keyboard = Markup.inlineKeyboard([
-    [
-      Markup.button.callback("➖ 15s", `trim_adj_-15_${chatId}`),
-      Markup.button.callback("➖ 5s", `trim_adj_-5_${chatId}`),
-      Markup.button.callback("➕ 5s", `trim_adj_+5_${chatId}`),
-      Markup.button.callback("➕ 15s", `trim_adj_+15_${chatId}`)
-    ],
-    [
-      Markup.button.callback(session.isTrimmed ? "🔴 Kesishni o'chirish" : "🟢 Kesishni yoqish", `trim_toggle_${chatId}`)
-    ],
-    [
-      Markup.button.callback("⬅️ Bosh Menyu", `nav_main_${chatId}`)
-    ]
-  ]);
-
-  await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, text, {
-    parse_mode: 'Markdown',
-    ...keyboard
-  }).catch(() => {});
-}
-
-// 3. Effektlar Ro'yxati (2 sahifaga bo'lingan ixcham 2-ustunli dizayn)
-async function renderEffectsMenu(ctx, chatId, page = 1) {
-  const session = pendingSessions[chatId];
-  if (!session) return;
-
-  session.currentPage = page;
-  const itemsPerPage = 10;
-  const startIndex = (page - 1) * itemsPerPage;
-  const pageEffects = AUDIO_EFFECTS_LIST.slice(startIndex, startIndex + itemsPerPage);
-
-  const buttons = [];
-  let row = [];
-
-  pageEffects.forEach((eff) => {
-    const intensity = session.selectedEffects[eff.key];
-    const isSelected = intensity !== undefined && intensity > 0;
-    const badge = isSelected ? `🟢 ${intensity}%` : `🔴`;
-    const btnText = `${badge} ${eff.title}`;
-
-    row.push(Markup.button.callback(btnText, `fx_select_${eff.key}_${chatId}`));
-
-    if (row.length === 2) {
-      buttons.push(row);
-      row = [];
-    }
-  });
-  if (row.length > 0) buttons.push(row);
-
-  const navRow = [];
-  if (page > 1) {
-    navRow.push(Markup.button.callback("⬅️ 1-Sahifa", `nav_fx_page_1_${chatId}`));
-  }
-  if (startIndex + itemsPerPage < AUDIO_EFFECTS_LIST.length) {
-    navRow.push(Markup.button.callback("2-Sahifa ➡️", `nav_fx_page_2_${chatId}`));
-  }
-  if (navRow.length > 0) buttons.push(navRow);
-
-  buttons.push([Markup.button.callback("⬅️ Bosh Menyu", `nav_main_${chatId}`)]);
-
-  const text = `🎛 **EFFEKTLAR RO'YXATI (${page}/2)**\n\n` +
-               `Effekt ustiga bosib, uning **kuchini (0-100%)** sozlashingiz mumkin:`;
-
-  await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, text, {
-    parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard(buttons)
-  }).catch(() => {});
-}
-
-// 4. Effekt Kuchini (0-100%) Tanlash Menyu
-async function renderEffectDetailMenu(ctx, chatId, effectKey) {
-  const session = pendingSessions[chatId];
-  if (!session) return;
-
-  const effect = AUDIO_EFFECTS_LIST.find(e => e.key === effectKey);
-  if (!effect) return;
-
-  const currentVal = session.selectedEffects[effectKey] || 0;
-  const statusBadge = currentVal > 0 ? `🟢 Yoqilgan (${currentVal}%)` : `🔴 O'chirilgan (0%)`;
-
-  const text = `🎛 **EFFEKT SOZLAMASI**\n\n` +
-               `✨ **Effekt:** ${effect.title}\n` +
-               `📌 **Holati:** ${statusBadge}\n` +
-               `📊 **Kuchlilik darajasi:** \`[ ${currentVal}% ]\`\n\n` +
-               `0% - o'chirilgan, 100% - maksimal kuchli/tiniq effekt.`;
-
-  const keyboard = Markup.inlineKeyboard([
-    [
-      Markup.button.callback("➖ 20%", `fx_val_${effectKey}_-20_${chatId}`),
-      Markup.button.callback("➖ 5%", `fx_val_${effectKey}_-5_${chatId}`),
-      Markup.button.callback("➕ 5%", `fx_val_${effectKey}_+5_${chatId}`),
-      Markup.button.callback("➕ 20%", `fx_val_${effectKey}_+20_${chatId}`)
-    ],
-    [
-      Markup.button.callback("🔴 0% (O'chirish)", `fx_val_${effectKey}_set0_${chatId}`),
-      Markup.button.callback("🔵 50% (Standart)", `fx_val_${effectKey}_set50_${chatId}`),
-      Markup.button.callback("🟢 100% (Maksimal)", `fx_val_${effectKey}_set100_${chatId}`)
-    ],
-    [
-      Markup.button.callback("⬅️ Effektlar Ro'yxatiga", `nav_fx_page_${session.currentPage || 1}_${chatId}`)
-    ]
-  ]);
-
-  await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, text, {
-    parse_mode: 'Markdown',
-    ...keyboard
-  }).catch(() => {});
-}
-
-// ==========================================
-// CALLBACK ACTIONS HANDLERS
-// ==========================================
-
-// Navigatsiya
-bot.action(/nav_main_(.+)/, async (ctx) => renderMainMenu(ctx, ctx.match[1]));
-bot.action(/nav_trim_(.+)/, async (ctx) => renderTrimMenu(ctx, ctx.match[1]));
-bot.action(/nav_fx_page_(\d+)_(.+)/, async (ctx) => renderEffectsMenu(ctx, ctx.match[2], parseInt(ctx.match[1], 10)));
-
-// Trim Sozlamalari
-bot.action(/trim_toggle_(.+)/, async (ctx) => {
+// Kesish sozlamasi tugmasi
+bot.action(/menu_trim30_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
-  if (session) {
-    session.isTrimmed = !session.isTrimmed;
-    renderTrimMenu(ctx, chatId);
-  }
+  if (!session) return;
+
+  session.step = 'waitingForTrimTime30';
+
+  const text = "⏱ **Musiqani qaysi soniyasidan boshlab kesamiz?**\n\nChatga daqiqa va soniyasini yozing (Masalan: `1 30` yoki `1:30`). Bot avtomatik 30 soniya kesib oladi.";
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback("⬅️ Ortga", `menu_back_${chatId}`)]
+  ]);
+
+  await ctx.editMessageText(text, {
+    parse_mode: 'Markdown',
+    ...keyboard
+  }).catch(() => {});
 });
 
-bot.action(/trim_adj_([+-]\d+)_(.+)/, async (ctx) => {
-  const delta = parseInt(ctx.match[1], 10);
-  const chatId = ctx.match[2];
+bot.action(/menu_back_(.+)/, async (ctx) => {
+  const chatId = ctx.match[1];
+  showMainMenu(ctx, chatId);
+});
+
+// Effektlar ro'yxatiga kirish
+bot.action(/menu_fx_select_(.+)/, async (ctx) => {
+  const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
-  if (session) {
-    session.trimStart = Math.max(0, session.trimStart + delta);
-    session.isTrimmed = true;
-    renderTrimMenu(ctx, chatId);
-  }
+  if (!session) return;
+
+  session.currentEffectIndex = 0;
+  showEffectControlMenu(ctx, chatId);
 });
 
-// Effekt Tanlash va Kuchini O'zgartirish
-bot.action(/fx_select_([a-zA-Z0-9]+)_(.+)/, async (ctx) => {
-  const effectKey = ctx.match[1];
-  const chatId = ctx.match[2];
-  renderEffectDetailMenu(ctx, chatId, effectKey);
-});
-
-bot.action(/fx_val_([a-zA-Z0-9]+)_([+-]\d+|set0|set50|set100)_(.+)/, async (ctx) => {
-  const effectKey = ctx.match[1];
-  const action = ctx.match[2];
-  const chatId = ctx.match[3];
+// EFFEKT INTENSIVLIGINI SOZLASH MENYUSI (YAGONA WINDOW)
+async function showEffectControlMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
+  if (!session) return;
 
-  if (session) {
-    let current = session.selectedEffects[effectKey] || 0;
+  const index = session.currentEffectIndex;
+  const effect = AUDIO_EFFECTS[index];
+  const currentVal = session.effectIntensities[effect.key] || 0;
 
-    if (action === 'set0') current = 0;
-    else if (action === 'set50') current = 50;
-    else if (action === 'set100') current = 100;
-    else {
-      const delta = parseInt(action, 10);
-      current = Math.min(100, Math.max(0, current + delta));
-    }
+  const text = `🎛 **EFFEKTNI SOZLASH (${index + 1}/${AUDIO_EFFECTS.length})**\n\n` +
+               `📌 **${effect.title}**\n` +
+               `⚡️ **Joriy Kuch:** \`[${currentVal}%]\` ${currentVal === 100 ? '🔥 (O\'TA KUCHLI)' : ''}\n\n` +
+               `Tugmalar orqali kuchini 0% dan 100% gacha o'zgartiring:`;
 
-    if (current === 0) {
-      delete session.selectedEffects[effectKey];
+  const keyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("➖ 10%", `fx_adj_${chatId}_-10`),
+      Markup.button.callback("➖ 1%", `fx_adj_${chatId}_-1`),
+      Markup.button.callback("➕ 1%", `fx_adj_${chatId}_+1`),
+      Markup.button.callback("➕ 10%", `fx_adj_${chatId}_+10`)
+    ],
+    [
+      Markup.button.callback("❌ 0% (O'chirish)", `fx_set_${chatId}_0`),
+      Markup.button.callback("🔥 100% (Maksimum)", `fx_set_${chatId}_100`)
+    ],
+    [
+      Markup.button.callback("⬅️ Oldingisi", `fx_nav_${chatId}_prev`),
+      Markup.button.callback("Keyingisi ➡️", `fx_nav_${chatId}_next`)
+    ],
+    [
+      Markup.button.callback("📋 Bosh Menyuga Qaytish", `menu_back_${chatId}`)
+    ]
+  ]);
+
+  await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, text, {
+    parse_mode: 'Markdown',
+    ...keyboard
+  }).catch(() => {});
+}
+
+// Qiymatni + - bilan o'zgartirish
+bot.action(/fx_adj_(.+)_(.+)/, async (ctx) => {
+  const chatId = ctx.match[1];
+  const delta = parseInt(ctx.match[2], 10);
+  const session = pendingSessions[chatId];
+  if (!session) return;
+
+  const effect = AUDIO_EFFECTS[session.currentEffectIndex];
+  let newVal = (session.effectIntensities[effect.key] || 0) + delta;
+  
+  if (newVal < 0) newVal = 0;
+  if (newVal > 100) newVal = 100;
+
+  session.effectIntensities[effect.key] = newVal;
+  showEffectControlMenu(ctx, chatId);
+});
+
+// Qiymatni to'g'ridan-to'g'ri o'rnatish (0 yoki 100)
+bot.action(/fx_set_(.+)_(.+)/, async (ctx) => {
+  const chatId = ctx.match[1];
+  const val = parseInt(ctx.match[2], 10);
+  const session = pendingSessions[chatId];
+  if (!session) return;
+
+  const effect = AUDIO_EFFECTS[session.currentEffectIndex];
+  session.effectIntensities[effect.key] = val;
+  showEffectControlMenu(ctx, chatId);
+});
+
+// Effektlar bo'ylab oldinga/ortga navigatsiya
+bot.action(/fx_nav_(.+)_(prev|next)/, async (ctx) => {
+  const chatId = ctx.match[1];
+  const dir = ctx.match[2];
+  const session = pendingSessions[chatId];
+  if (!session) return;
+
+  if (dir === 'next') {
+    if (session.currentEffectIndex < AUDIO_EFFECTS.length - 1) {
+      session.currentEffectIndex += 1;
     } else {
-      session.selectedEffects[effectKey] = current;
+      showMainMenu(ctx, chatId);
+      return;
     }
-
-    renderEffectDetailMenu(ctx, chatId, effectKey);
+  } else if (dir === 'prev') {
+    if (session.currentEffectIndex > 0) {
+      session.currentEffectIndex -= 1;
+    }
   }
+
+  showEffectControlMenu(ctx, chatId);
 });
 
-// ==========================================
-// TAYYOR AMALINI BAJARISH
-// ==========================================
 bot.action(/process_final_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   addToQueue(() => processAndSendFinalAudio(ctx, chatId));
 });
 
+// ==========================================
+// 6. ISHLOV BERISH VA YAKUNIY CHAT TOZALASH
+// ==========================================
 async function processAndSendFinalAudio(ctx, chatId) {
   const session = pendingSessions[chatId];
   if (!session) return;
 
   const tempDir = path.dirname(session.rawPath);
 
-  const appliedList = Object.entries(session.selectedEffects)
-    .filter(([_, val]) => val > 0)
-    .map(([key, val]) => {
-      const eff = AUDIO_EFFECTS_LIST.find(e => e.key === key);
-      return `${eff ? eff.title : key} (${val}%)`;
-    });
+  const appliedList = AUDIO_EFFECTS
+    .filter(eff => session.effectIntensities[eff.key] > 0)
+    .map(eff => `${eff.title} (${session.effectIntensities[eff.key]}%)`);
 
-  const appliedFxText = appliedList.length > 0 ? appliedList.join(', ') : "Standart (Toza)";
+  const appliedFxText = appliedList.length > 0 ? appliedList.join(', ') : "Standart";
 
-  const loadingText = `⚡️ **Musiqa qayta ishlanmoqda...**\n\n` +
-                      `🎛 **Qo'llanilgan effektlar:**\n${appliedFxText}`;
-
+  const loadingText = `⚡️ **Musiqa navbatda va qayta ishlanmoqda...**\n🎛 *Qo'shilgan effektlar:* ${appliedFxText}`;
+  
   await ctx.telegram.editMessageText(chatId, session.promptMessageId, undefined, loadingText, {
     parse_mode: 'Markdown'
   }).catch(() => {});
 
   try {
+    const duration = await getAudioDuration(session.rawPath);
+
     let trimmedAudioPath = null;
     if (session.isTrimmed) {
       trimmedAudioPath = path.join(tempDir, `snippet_${Date.now()}.mp3`);
       const tempTrimmed = path.join(tempDir, `raw_trim_${Date.now()}.mp3`);
 
       await trimAudio(session.rawPath, tempTrimmed, session.trimStart, session.trimDuration);
-      await applyCustomAudioEffects(tempTrimmed, trimmedAudioPath, session.selectedEffects, session.trimDuration);
+      await applyCustomAudioEffects(tempTrimmed, trimmedAudioPath, session.effectIntensities, session.trimDuration);
       await cleanAndInjectMetadata(trimmedAudioPath, " ");
 
       if (fs.existsSync(tempTrimmed)) fs.unlinkSync(tempTrimmed);
@@ -423,23 +707,24 @@ async function processAndSendFinalAudio(ctx, chatId) {
     const processedFxPath = path.join(tempDir, `fx_${Date.now()}.mp3`);
     const fullAudioPath = path.join(tempDir, `full_${Date.now()}.mp3`);
 
-    await applyCustomAudioEffects(session.rawPath, processedFxPath, session.selectedEffects);
+    await applyCustomAudioEffects(session.rawPath, processedFxPath, session.effectIntensities, duration);
     await processAudioWithVoiceTag(processedFxPath, fullAudioPath, session.startTagPath, session.endTagPath);
     const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
     const coverPath = getCoverPath();
 
+    // Tugallangach inline menyu xabarini o'chirib chatni toza tutamiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
     if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {
       await ctx.telegram.sendAudio(
         chatId,
         { source: trimmedAudioPath },
-        { title: "30s Snippet", performer: " " }
+        { title: " ", performer: " " }
       );
-      if (fs.existsSync(trimmedAudioPath)) fs.unlinkSync(trimmedAudioPath);
+      fs.unlinkSync(trimmedAudioPath);
     }
 
-    await ctx.telegram.sendAudio(
+    const sentAudio = await ctx.telegram.sendAudio(
       chatId,
       { source: fullAudioPath },
       {
@@ -451,11 +736,12 @@ async function processAndSendFinalAudio(ctx, chatId) {
       }
     );
 
-    if (fs.existsSync(processedFxPath)) fs.unlinkSync(processedFxPath);
-    if (fs.existsSync(fullAudioPath)) fs.unlinkSync(fullAudioPath);
+    if (sentAudio && sentAudio.audio) {
+      channelTrackHistory.push({ file_id: sentAudio.audio.file_id });
+    }
 
   } catch (err) {
-    console.error("Ishlov berish xatosi:", err);
+    console.error("Process Error:", err);
     await ctx.telegram.sendMessage(chatId, "❌ Ishlov berishda xatolik yuz berdi!").catch(() => {});
   } finally {
     if (session.rawPath && fs.existsSync(session.rawPath)) fs.unlinkSync(session.rawPath);
@@ -468,7 +754,7 @@ app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server ${PORT}-portda ishga tushdi.`);
   try {
     await bot.launch();
-    console.log("MuzXs Bot tayyor va ishlamoqda.");
+    console.log("MuzXs Bot va Express Mini App tayyor va ishlamoqda.");
   } catch (err) {
     console.error("Botni ishga tushirishda xatolik:", err);
   }

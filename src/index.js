@@ -47,7 +47,7 @@ async function processNextInQueue() {
   try {
     await currentTask();
   } catch (err) {
-    console.error("Queue Task Xatolik:", err);
+    console.error("Navbat xatoligi:", err);
   } finally {
     isProcessingQueue = false;
     processNextInQueue();
@@ -94,7 +94,7 @@ app.get('/api/get-bot-info', (req, res) => {
 const pendingSessions = {};
 
 // ==========================================
-// 2. AVTOMATIK CLEAN TITLE
+// 2. AVTOMATIK SALLAVANI TOZALASH
 // ==========================================
 function cleanTrackTitle(rawTitle) {
   if (!rawTitle) return "Track";
@@ -111,42 +111,38 @@ function cleanTrackTitle(rawTitle) {
 }
 
 // ==========================================
-// 3. EFFEKTLAR BAZASI (23 TA EFFEKT - Dynamic Filter Generation)
+// 3. EFFEKTLAR BAZASI (O'ZBEKCHALASHTIRILGAN NOM - 23 TA EFFEKT)
 // ==========================================
 const AUDIO_EFFECTS = [
   {
     key: 'slowed',
-    title: '🐌 Slowed',
+    title: '🐌 Sekinlashtirilgan (Slowed)',
     getFilter: (val) => {
-      // 0% -> 1.0, 100% -> 0.5
       const speed = (1.0 - (val / 100) * 0.5).toFixed(2);
       return `atempo=${speed}`;
     }
   },
   {
     key: 'bassBoost',
-    title: '🔊 Bass Boost',
+    title: '🔊 Kuchaytirilgan Bas (Bass Boost)',
     getFilter: (val) => {
-      // 0% -> 0dB, 100% -> 25dB
       const gain = Math.round((val / 100) * 25);
       return `equalizer=f=60:width_type=h:width=50:g=${gain}`;
     }
   },
   {
     key: 'ebuNormalization',
-    title: '📊 EBU Normalization',
+    title: '📊 EBU Ovoz Me\'yori (LUFS)',
     getFilter: (val) => {
-      // 0% -> -24 LUFS, 100% -> -8 LUFS
       const lufs = (-24 + (val / 100) * 16).toFixed(1);
       return `loudnorm=I=${lufs}:LRA=11:TP=-1.5`;
     }
   },
   {
     key: 'smoothFade',
-    title: '🎚 Smooth Fade In & Out',
+    title: '🎚 Yumshoq Boshlanish va Yakunlanish',
     getFilter: (val, duration) => {
       const dur = duration || 180;
-      // 0% -> 0.5s fade, 100% -> 10s fade
       const fadeDur = Math.max(0.5, ((val / 100) * 10)).toFixed(1);
       const fadeOutStart = Math.max(0, dur - fadeDur).toFixed(1);
       return `afade=t=in:ss=0:d=${fadeDur},afade=t=out:st=${fadeOutStart}:d=${fadeDur}`;
@@ -154,9 +150,8 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'voiceIsolator',
-    title: '🎤 Voice Isolator',
+    title: '🎤 Ovozni Ajratish (Vokal)',
     getFilter: (val) => {
-      // High-pass & Low-pass vocal range filter based on intensity
       const hp = Math.round(100 + (val / 100) * 200);
       const lp = Math.round(8000 - (val / 100) * 4000);
       return `highpass=f=${hp},lowpass=f=${lp}`;
@@ -164,16 +159,15 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'eightD',
-    title: '🎧 8D Audio',
+    title: '🎧 8D Ovoz Effekti',
     getFilter: (val) => {
-      // 0% -> 0.05 Hz, 100% -> 0.8 Hz
       const hz = (0.05 + (val / 100) * 0.75).toFixed(3);
       return `apulsator=hz=${hz}:amount=1`;
     }
   },
   {
     key: 'reverbEcho',
-    title: '🏛 Reverb & Echo',
+    title: '🏛 Aks-sado va Exod (Reverb & Echo)',
     getFilter: (val) => {
       const delay = Math.round(20 + (val / 100) * 180);
       const decay = (0.1 + (val / 100) * 0.75).toFixed(2);
@@ -182,9 +176,8 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'pure3D',
-    title: '🌌 Pure 3D Spatial Audio',
+    title: '🌌 Sof 3D Fazoviy Ovoz',
     getFilter: (val) => {
-      // 0% -> light 3D spatializing, 100% -> extreme 3D rotation & depth
       const hz = (0.03 + (val / 100) * 0.4).toFixed(3);
       const width = (1.0 + (val / 100) * 2.0).toFixed(2);
       return `apulsator=hz=${hz}:amount=0.85,extrastereo=m=${width}`;
@@ -192,54 +185,48 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'nightcore',
-    title: '⚡️ Nightcore',
+    title: '⚡️ Naytkor Effekti (Tez va O'tkir)',
     getFilter: (val) => {
-      // 0% -> 1.05x speed, 100% -> 1.6x speed + pitch gain
       const speed = (1.05 + (val / 100) * 0.55).toFixed(2);
       return `asetrate=44100*${speed},aresample=44100,atempo=1.0`;
     }
   },
   {
     key: 'speedUp',
-    title: '🚀 Speed Up',
+    title: '🚀 Tezlashtirilgan Ovoz',
     getFilter: (val) => {
-      // 0% -> 1.05x, 100% -> 2.0x
       const speed = (1.05 + (val / 100) * 0.95).toFixed(2);
       return `atempo=${speed}`;
     }
   },
   {
     key: 'trebleBoost',
-    title: '🎼 Treble Boost',
+    title: '🎼 Yuqori Chastota Kuchaytirgichi (Treble)',
     getFilter: (val) => {
-      // 0% -> 0dB, 100% -> 20dB at 10kHz
       const gain = Math.round((val / 100) * 20);
       return `equalizer=f=10000:width_type=h:width=1000:g=${gain}`;
     }
   },
   {
     key: 'vaporwave',
-    title: '🌴 Vaporwave',
+    title: '🌴 Vaporveyv Effekti (Retro Sekin)',
     getFilter: (val) => {
-      // 0% -> 0.95x, 100% -> 0.7x + lowpass + reverb
       const speed = (0.95 - (val / 100) * 0.25).toFixed(2);
       return `asetrate=44100*${speed},aresample=44100,lowpass=f=3500`;
     }
   },
   {
     key: 'stereoEnhancer',
-    title: '↔️ Stereo Enhancer',
+    title: '↔️ Stereo Kengaytirgich',
     getFilter: (val) => {
-      // 0% -> m=1.1, 100% -> m=3.5
       const m = (1.1 + (val / 100) * 2.4).toFixed(1);
       return `extrastereo=m=${m}`;
     }
   },
   {
     key: 'flanger',
-    title: '🌊 Flanger Effect',
+    title: '🌊 Flanger To'lqin Effekti',
     getFilter: (val) => {
-      // 0% -> light flange, 100% -> deep jet sweep
       const depth = (1 + (val / 100) * 9).toFixed(1);
       const speed = (0.1 + (val / 100) * 1.9).toFixed(1);
       return `flanger=delay=${depth}:speed=${speed}`;
@@ -247,7 +234,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'chorus',
-    title: '👥 Chorus Ensemble',
+    title: '👥 Xor (Ko'p Ovozlilik) Effekti',
     getFilter: (val) => {
       const delay = Math.round(20 + (val / 100) * 40);
       const decay = (0.2 + (val / 100) * 0.6).toFixed(2);
@@ -256,9 +243,8 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'telephoneFilter',
-    title: '📞 Old Telephone',
+    title: '📞 Eski Telefon Ovozi',
     getFilter: (val) => {
-      // 0% -> broad phone, 100% -> extreme narrow walkie-talkie band
       const low = Math.round(300 + (val / 100) * 400);
       const high = Math.round(3400 - (val / 100) * 1400);
       return `highpass=f=${low},lowpass=f=${high}`;
@@ -266,34 +252,31 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'muffledConcert',
-    title: '🚪 Concert Bathroom (Muffled)',
+    title: '🚪 Konsert Zali / xona Ortidan Ovoz',
     getFilter: (val) => {
-      // 0% -> 2000Hz, 100% -> 400Hz cutoff (extreme underwater/room effect)
       const lp = Math.round(2000 - (val / 100) * 1600);
       return `lowpass=f=${lp},aecho=0.8:0.88:40:0.4`;
     }
   },
   {
     key: 'pitchShiftHigh',
-    title: '🐿 Chipmunk Pitch (High)',
+    title: '🐿 Ingichka Yuqori Ovoz (Olay)',
     getFilter: (val) => {
-      // 0% -> +1 semitone, 100% -> +12 semitones
       const pitch = (1.05 + (val / 100) * 0.95).toFixed(2);
       return `asetrate=44100*${pitch},aresample=44100`;
     }
   },
   {
     key: 'pitchShiftLow',
-    title: '👹 Deep Monster Voice',
+    title: '👹 Yo'g'on Maxluq Ovozi',
     getFilter: (val) => {
-      // 0% -> -1 semitone, 100% -> -12 semitones
-      const pitch = (0.95 - (val / 100) * 0.45).toFixed(2);
+      const pitch = (0.95 - (val / 0.45)).toFixed(2);
       return `asetrate=44100*${pitch},aresample=44100`;
     }
   },
   {
     key: 'phaser',
-    title: '🛸 Phaser Space Sweep',
+    title: '🛸 Kosmik Fazer Effekti',
     getFilter: (val) => {
       const speed = (0.1 + (val / 100) * 2.0).toFixed(1);
       const decay = (0.2 + (val / 100) * 0.7).toFixed(2);
@@ -302,16 +285,15 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'distortedOverdrive',
-    title: '🎸 Heavy Distortion',
+    title: '🎸 Kuchli Buzilish (Distorshn)',
     getFilter: (val) => {
-      // 0% -> light warm overdrive, 100% -> extreme heavy fuzz
       const drive = Math.round(5 + (val / 100) * 80);
       return `acrusher=level_in=1:level_out=1:bits=16:mode=log:anti_aliasing=1,volume=${drive}dB`;
     }
   },
   {
     key: 'underwater',
-    title: '🌊 Deep Underwater',
+    title: '🌊 Suv Ostidagi Ovoz Effekti',
     getFilter: (val) => {
       const lp = Math.round(1200 - (val / 100) * 900);
       return `lowpass=f=${lp},volume=1.5`;
@@ -319,7 +301,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'radioAM',
-    title: '📻 AM Vintage Radio',
+    title: '📻 Eski Radio O'xshatmasi',
     getFilter: (val) => {
       const hp = Math.round(400 + (val / 100) * 400);
       const lp = Math.round(2500 - (val / 100) * 1000);
@@ -400,7 +382,7 @@ bot.on('channel_post', async (ctx) => {
   const chatId = post.chat.id;
   const session = pendingSessions[chatId];
 
-  // Text inputs handling (Title & Trim time)
+  // Matnli kiritishlar (Nomi va Kesish vaqti)
   if (post.text && session) {
     const text = post.text.trim();
     const userMessageId = post.message_id;
@@ -441,7 +423,7 @@ bot.on('channel_post', async (ctx) => {
     }
   }
 
-  // Audio files receiving
+  // Audio fayllarni qabul qilish
   if (post.audio) {
     const messageId = post.message_id;
     const audio = post.audio;
@@ -473,11 +455,10 @@ bot.on('channel_post', async (ctx) => {
       const cleanedTitle = `${cleanTrackTitle(rawTitle)} 🎧`;
 
       const promptMsg = await ctx.telegram.sendMessage(chatId, 
-        `✍️ **Musiqa qabul qilindi!**\n\nIltimos, ushbu musiqa uchun **nom (title)** yuboring (masalan: *Artist - Track Name*):`, 
+        `✍️ **Musiqa qabul qilindi!**\n\nIltimos, ushbu musiqa uchun **nom (title)** yuboring (masalan: *Shtrix - Musiqa nomi*):`, 
         { parse_mode: 'Markdown' }
       );
 
-      // Har bir effekt uchun default 0 intensivlik holatini yuklaymiz
       const initialEffects = {};
       AUDIO_EFFECTS.forEach(eff => {
         initialEffects[eff.key] = 0;
@@ -504,7 +485,7 @@ bot.on('channel_post', async (ctx) => {
 });
 
 // ==========================================
-// 5. YAGONA INLINE MENYU TIZIMI (EDIT MESSAGE ONLY)
+// 5. INLINE MENYU TIZIMI
 // ==========================================
 async function showMainMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
@@ -517,7 +498,7 @@ async function showMainMenu(ctx, chatId) {
     .map(e => `${e.title} (${session.effectIntensities[e.key]}%)`);
 
   const activeText = activeEffects.length > 0 ? activeEffects.join('\n• ') : 'Yo\'q (Standart)';
-  const trimStatus = session.isTrimmed ? `✅ ${session.trimStart}s dan +30s` : "❌ Tanlanmadi";
+  const trimStatus = session.isTrimmed ? `✅ ${session.trimStart} soniyadan (+30 soniya)` : "❌ Tanlanmadi";
 
   const text = `🎧 **MUSIQA BOSHQARUV PANELI**\n\n` +
                `🎵 **Nomi:** ${session.customTitle}\n` +
@@ -526,7 +507,7 @@ async function showMainMenu(ctx, chatId) {
                `Kerakli bo'limni tanlang:`;
 
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback("⏱ 30s Kesish vaqtini belgilash", `menu_trim30_${chatId}`)],
+    [Markup.button.callback("⏱ 30 soniya kesish vaqtini belgilash", `menu_trim30_${chatId}`)],
     [Markup.button.callback("🎛 Effektlarni Sozlash (0-100%)", `menu_fx_select_${chatId}`)],
     [Markup.button.callback("🚀 TAYYOR (Kanalga Joylash)", `process_final_${chatId}`)]
   ]);
@@ -537,7 +518,6 @@ async function showMainMenu(ctx, chatId) {
   }).catch(() => {});
 }
 
-// Kesish sozlamasi tugmasi
 bot.action(/menu_trim30_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
@@ -545,7 +525,7 @@ bot.action(/menu_trim30_(.+)/, async (ctx) => {
 
   session.step = 'waitingForTrimTime30';
 
-  const text = "⏱ **Musiqani qaysi soniyasidan boshlab kesamiz?**\n\nChatga daqiqa va soniyasini yozing (Masalan: `1 30` yoki `1:30`). Bot avtomatik 30 soniya kesib oladi.";
+  const text = "⏱ **Musiqani qaysi soniyasidan boshlab kesamiz?**\n\nChatga daqiqa va soniyani yozing (Masalan: `1 30` yoki `1:30`). Bot avtomatik 30 soniyasini kesib oladi.";
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback("⬅️ Ortga", `menu_back_${chatId}`)]
   ]);
@@ -561,7 +541,6 @@ bot.action(/menu_back_(.+)/, async (ctx) => {
   showMainMenu(ctx, chatId);
 });
 
-// Effektlar ro'yxatiga kirish
 bot.action(/menu_fx_select_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const session = pendingSessions[chatId];
@@ -571,7 +550,6 @@ bot.action(/menu_fx_select_(.+)/, async (ctx) => {
   showEffectControlMenu(ctx, chatId);
 });
 
-// EFFEKT INTENSIVLIGINI SOZLASH MENYUSI (YAGONA WINDOW)
 async function showEffectControlMenu(ctx, chatId) {
   const session = pendingSessions[chatId];
   if (!session) return;
@@ -582,7 +560,7 @@ async function showEffectControlMenu(ctx, chatId) {
 
   const text = `🎛 **EFFEKTNI SOZLASH (${index + 1}/${AUDIO_EFFECTS.length})**\n\n` +
                `📌 **${effect.title}**\n` +
-               `⚡️ **Joriy Kuch:** \`[${currentVal}%]\` ${currentVal === 100 ? '🔥 (O\'TA KUCHLI)' : ''}\n\n` +
+               `⚡️ **Joriy Kuch:** \`[${currentVal}%]\` ${currentVal === 100 ? '🔥 (MAKSIMAL)' : ''}\n\n` +
                `Tugmalar orqali kuchini 0% dan 100% gacha o'zgartiring:`;
 
   const keyboard = Markup.inlineKeyboard([
@@ -611,7 +589,6 @@ async function showEffectControlMenu(ctx, chatId) {
   }).catch(() => {});
 }
 
-// Qiymatni + - bilan o'zgartirish
 bot.action(/fx_adj_(.+)_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const delta = parseInt(ctx.match[2], 10);
@@ -628,7 +605,6 @@ bot.action(/fx_adj_(.+)_(.+)/, async (ctx) => {
   showEffectControlMenu(ctx, chatId);
 });
 
-// Qiymatni to'g'ridan-to'g'ri o'rnatish (0 yoki 100)
 bot.action(/fx_set_(.+)_(.+)/, async (ctx) => {
   const chatId = ctx.match[1];
   const val = parseInt(ctx.match[2], 10);
@@ -640,7 +616,6 @@ bot.action(/fx_set_(.+)_(.+)/, async (ctx) => {
   showEffectControlMenu(ctx, chatId);
 });
 
-// Effektlar bo'ylab oldinga/ortga navigatsiya
 bot.action(/fx_nav_(.+)_(prev|next)/, async (ctx) => {
   const chatId = ctx.match[1];
   const dir = ctx.match[2];
@@ -669,7 +644,7 @@ bot.action(/process_final_(.+)/, async (ctx) => {
 });
 
 // ==========================================
-// 6. ISHLOV BERISH VA YAKUNIY CHAT TOZALASH
+// 6. ISHLOV BERISH VA YAKUNIY TOZALASH
 // ==========================================
 async function processAndSendFinalAudio(ctx, chatId) {
   const session = pendingSessions[chatId];
@@ -712,7 +687,6 @@ async function processAndSendFinalAudio(ctx, chatId) {
     const updatedTitle = await cleanAndInjectMetadata(fullAudioPath, session.customTitle);
     const coverPath = getCoverPath();
 
-    // Tugallangach inline menyu xabarini o'chirib chatni toza tutamiz
     await ctx.telegram.deleteMessage(chatId, session.promptMessageId).catch(() => {});
 
     if (session.isTrimmed && trimmedAudioPath && fs.existsSync(trimmedAudioPath)) {
@@ -741,7 +715,7 @@ async function processAndSendFinalAudio(ctx, chatId) {
     }
 
   } catch (err) {
-    console.error("Process Error:", err);
+    console.error("Ishlov berishda xatolik:", err);
     await ctx.telegram.sendMessage(chatId, "❌ Ishlov berishda xatolik yuz berdi!").catch(() => {});
   } finally {
     if (session.rawPath && fs.existsSync(session.rawPath)) fs.unlinkSync(session.rawPath);

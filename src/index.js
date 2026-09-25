@@ -4,10 +4,6 @@ const TelegramBot = require('node-telegram-bot-api');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 const { computeCheck } = require('telegram/Password');
-const { Logger } = require("telegram/extensions");
-
-// GramJS konsol loglarini faqat jiddiy xatolar (error) bilan cheklaymiz
-Logger.setLevel("error");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,25 +41,29 @@ app.post('/api/send-code', async (req, res) => {
     try {
         const stringSession = new StringSession("");
         
-        // Telegram DC2 va barqaror ulanish parametrlari
+        // Qat'iy DC IP bermasdan avtomatik DC aniqlashga ruxsat beramiz
         const client = new TelegramClient(stringSession, API_ID, API_HASH, {
             connectionRetries: 5,
-            useWSS: false,
-            dcId: 2,
-            serverAddress: "149.154.167.50", // DC2 Asosiy IP adresi
-            port: 443
+            useWSS: false
         });
+
+        // Logger darajasini klient orqali belgilaymiz
+        if (client.setLogLevel) {
+            client.setLogLevel("error");
+        }
 
         await client.connect();
 
-        // Telegram xizmatidan kod yuborish so'rovi
-        const { phoneCodeHash } = await client.sendCode(
+        // Telegram xizmatidan kod yuborish so'rovi (To'g'ri uzatish usuli)
+        const sendCodeResult = await client.sendCode(
             {
                 apiId: API_ID,
                 apiHash: API_HASH,
             },
             '+' + phone
         );
+
+        const phoneCodeHash = sendCodeResult.phoneCodeHash;
 
         // Vaqtincha saqlash
         activeAuthSessions[phone] = {
@@ -574,7 +574,7 @@ app.get('/', (req, res) => {
     function handleCellClick(row, col) {
         if (!isPlaying || row !== currentStep) return;
         const isBad = gridData[row].has(col);
-        const cell = document.querySelector(\`.cell[data-row="\${row}"][data-col="\${col}"]\`);
+        cell = document.querySelector(\`.cell[data-row="\${row}"][data-col="\${col}"]\`);
 
         if (isBad) {
             cell.classList.add('opened-core');

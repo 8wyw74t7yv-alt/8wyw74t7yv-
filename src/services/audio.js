@@ -15,7 +15,7 @@ const AUDIO_EFFECTS_LIST = [
   { key: 'eightD', title: '🎧 8D Ovoz (8D Audio)' },
   { key: 'reverbEcho', title: '🏛 Aks-sado va Reverb' },
   { key: 'pure3D', title: '🌌 3D Fazo Ketma-ketligi' },
-  { key: 'nightcore', title: '⚡️ Taym-ap va Pitchni Ko‘tarish (Nightcore)' },
+  { key: 'nightcore', title: '⚡️ Taym-ap va Pitchni Kotarish (Nightcore)' },
   { key: 'speedUp', title: '🚀 Tezlashtirilgan (Speed Up)' },
   { key: 'trebleBoost', title: '🎼 Yuqori Chastotalarni Kuchaytirish' },
   { key: 'vaporwave', title: '🌴 Retrowave / Vaporwave Style' },
@@ -55,7 +55,7 @@ const AUDIO_EFFECTS_LIST = [
   { key: 'wideSpreader', title: '🎛 Ota Keng Stereo Maydon' },
   { key: 'tunnelReverb', title: '🚇 Tonnell Ichidagi Ovoz' },
   { key: 'tapeStop', title: '⏸ Kassetani Toxtatish Effekti' },
-  { key: 'exciterMix', title: '🔥 Yorqinlik va Tiniqlik Qo'shish' },
+  { key: 'exciterMix', title: '🔥 Yorqinlik va Tiniqlik Qoshish' },
   { key: 'psychedelicPan', title: '🌀 Psixodelik Aylanish' },
   { key: 'megaphone', title: '📣 Megafon / Ropor Ovozi' },
   { key: 'ambientPad', title: '☁️ Yumshoq Ambiant Atmosfera' }
